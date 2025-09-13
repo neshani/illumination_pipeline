@@ -11,13 +11,14 @@ from src.project_manager import (
 )
 from src.llm_handler import run_single_text_test_suite, run_chunking_test_suite, generate_prompts_for_project
 from src.image_generator import run_image_generation, run_upscaling_process
-from src.utils import Colors, open_folder_in_explorer, open_file
+from src.utils import Colors, open_folder_in_explorer, open_file, get_menu_choice, get_char
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 def press_enter_to_continue():
-    input("\nPress Enter to return...")
+    print("\nPress any key to return...")
+    get_char()
 
 def handle_import_new_book():
     clear_screen()
@@ -35,11 +36,11 @@ def handle_import_new_book():
     print("(O)pen 'Books' Folder")
     print("(B)ack to Main Menu")
     
-    choice = input("\nSelect a book to import or an option: ").lower()
+    print("\nSelect a book to import or an option: ", end="", flush=True)
+    choice = get_menu_choice()
     if choice == 'b': return None
     if choice == 'o':
         open_folder_in_explorer("Books")
-        press_enter_to_continue()
         return "refresh" # Special signal to re-run this menu
 
     try:
@@ -70,7 +71,8 @@ def handle_single_image(project_path):
         except (ValueError, IndexError) as e:
             print(f"\n{Colors.RED}Invalid format. Please try again. ({e}){Colors.ENDC}")
         
-        another = input("\nGenerate another fill-in image? (y/n): ").lower()
+        print("\nGenerate another fill-in image? (y/n): ", end="", flush=True)
+        another = get_menu_choice()
         if another != 'y': break
 
 def handle_project_menu(project_name, project_path):
@@ -82,8 +84,6 @@ def handle_project_menu(project_name, project_path):
         from src.config_manager import load_project_config
         config = load_project_config(project_path)
         
-        # --- THIS IS THE CORRECTED LINE ---
-        # It now correctly looks inside the "common_settings" block.
         is_comfy_project = config.get("common_settings", {}).get("image_generator_type") == "comfyui"
 
         prompts_exist = os.path.exists(os.path.join(project_path, f"{project_name}_prompts.csv"))
@@ -93,9 +93,10 @@ def handle_project_menu(project_name, project_path):
             print("\n[1] Generate prompts from book text")
             print("(O)pen Project Folder")
             print("(B)ack to Main Menu")
-            choice = input("\nSelect an option: ").lower()
+            print("\nSelect an option: ", end="", flush=True)
+            choice = get_menu_choice()
             if choice == '1': generate_prompts_for_project(project_path); press_enter_to_continue()
-            elif choice == 'o': open_folder_in_explorer(project_path); press_enter_to_continue()
+            elif choice == 'o': open_folder_in_explorer(project_path)
             elif choice == 'b': return
         else:
             print("Status: Ready for Image Generation.")
@@ -105,21 +106,23 @@ def handle_project_menu(project_name, project_path):
             print("---------------------------")
             print("(O)pen Project Folder")
             if is_comfy_project:
-                print(f"(C)lean up ComfyUI Output Folder") # <-- This will now appear correctly
+                print(f"(C)lean up ComfyUI Output Folder")
             print("(R)e-run prompt generation (deletes existing prompts)")
             print("(B)ack to Main Menu")
-            choice = input("\nSelect an option: ").lower()
+            print("\nSelect an option: ", end="", flush=True)
+            choice = get_menu_choice()
 
             if choice == '1': run_image_generation(project_path); press_enter_to_continue()
             elif choice == '2': handle_single_image(project_path)
             elif choice == '3': run_upscaling_process(project_path); press_enter_to_continue()
-            elif choice == 'o': open_folder_in_explorer(project_path); press_enter_to_continue()
+            elif choice == 'o': open_folder_in_explorer(project_path)
             elif choice == 'c' and is_comfy_project:
                 from src.project_manager import cleanup_comfyui_output_for_project
                 cleanup_comfyui_output_for_project(project_path, config)
                 press_enter_to_continue()
             elif choice == 'r':
-                if input("Are you sure? (y/n): ").lower() == 'y':
+                print("\nAre you sure? (y/n): ", end="", flush=True)
+                if get_menu_choice() == 'y':
                     os.remove(os.path.join(project_path, f"{project_name}_prompts.csv"))
             elif choice == 'b': return
 
@@ -130,7 +133,8 @@ def handle_testing_menu():
         print("\n[1] Chunking & Prompt Test (Live Data)")
         print("[2] Single Text Test (from llm_test_input.txt)")
         print("(B)ack to Main Menu")
-        choice = input("\nSelect a test to run: ").lower()
+        print("\nSelect a test to run: ", end="", flush=True)
+        choice = get_menu_choice()
         if choice == '1': handle_chunking_test()
         elif choice == '2': run_single_text_test_suite(); press_enter_to_continue()
         elif choice == 'b': return
@@ -170,7 +174,8 @@ def main():
         print("(T)esting Suites")
         print("(G)lobal Settings (config file)")
         print("(Q)uit")
-        choice = input("\nSelect a project or an option: ").lower()
+        print("\nSelect a project or an option: ", end="", flush=True)
+        choice = get_menu_choice()
 
         if choice == 'q': break
         elif choice == 'i': 
@@ -183,7 +188,6 @@ def main():
         elif choice == 't': handle_testing_menu()
         elif choice == 'g':
             open_file('global_config.json')
-            press_enter_to_continue()
         else:
             try:
                 index = int(choice) - 1

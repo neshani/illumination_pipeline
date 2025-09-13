@@ -5,6 +5,7 @@ You are a specialized AI function that converts a passage of text into a single-
 2.  Your output MUST be a single, descriptive sentence.
 3.  Your output MUST NOT describe characters talking or performing simple actions (e.g., "two people at a table"). Focus on the visual environment.
 4.  CRITICAL: Do not add any conversational text, explanations, or labels. The output must be the image prompt and nothing else.
+5.  The image will be a drawing, avoid words like "hyperdetailed" or "photo". 
 
 ### TASK ###
 PASSAGE:

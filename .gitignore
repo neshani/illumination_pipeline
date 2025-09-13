@@ -77,3 +77,4 @@ global_config.json
 global_config.json
 zExportFiles.ps1
 debug_epub.py
+prompt_template.txt.template

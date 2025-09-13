@@ -12,6 +12,28 @@ class Colors:
     BOLD = '\033[1m'
     ENDC = '\033[0m' # Resets color to default
 
+def get_char():
+    """Gets a single character from the user without waiting for Enter."""
+    if sys.platform == "win32":
+        import msvcrt
+        return msvcrt.getch().decode('utf-8')
+    else:
+        import tty, termios
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(sys.stdin.fileno())
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+
+def get_menu_choice():
+    """Gets a single character from the user and returns it in lowercase."""
+    char = get_char()
+    print(char) # Echo the character back to the user
+    return char.lower()
+
 def open_folder_in_explorer(path):
     """Opens the given folder path in the default file explorer."""
     print(f"Opening folder: {path}")
