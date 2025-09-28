@@ -57,9 +57,11 @@ def run_image_generation(project_path, single_image_details=None):
     config = load_project_config(project_path)
     generator_type = config.get("common_settings", {}).get("image_generator_type", "forge").lower()
     if generator_type == "comfyui":
-        run_comfyui_image_generation(project_path, config, single_image_details)
+        # Pass the return value up
+        return run_comfyui_image_generation(project_path, config, single_image_details)
     else:
-        run_forge_image_generation(project_path, config, single_image_details)
+        # Pass the return value up
+        return run_forge_image_generation(project_path, config, single_image_details)
 
 def run_upscaling_process(project_path):
     """Router for upscaling. Calls the correct function based on config."""
@@ -103,8 +105,10 @@ def _queue_comfy_prompt(prompt_workflow, api_address, return_filename=False):
         print(f"  -> {Colors.RED}ERROR: An error occurred during ComfyUI communication: {e}{Colors.ENDC}"); return None
 
 def run_comfyui_image_generation(project_path, config, single_image_details=None):
-    """Runs the image generation process using a fully config-driven ComfyUI workflow."""
-    # Pull settings from the new, organized config structure
+    """
+    Runs the image generation process using a fully config-driven ComfyUI workflow.
+    Returns True if interrupted by the user, otherwise False.
+    """
     comfy_settings = config.get("comfyui_settings", {})
     common = config.get("common_settings", {})
     
@@ -114,17 +118,13 @@ def run_comfyui_image_generation(project_path, config, single_image_details=None
     os.makedirs(images_folder, exist_ok=True)
 
     try:
-        # Note: uses the new key 'generation_workflow'
         with open(comfy_settings['generation_workflow'], 'r') as f: base_workflow = json.load(f)
     except Exception as e:
-        print(f"ERROR: Could not load ComfyUI workflow '{comfy_settings.get('generation_workflow')}'. {e}"); return
+        print(f"ERROR: Could not load ComfyUI workflow '{comfy_settings.get('generation_workflow')}'. {e}"); return False
 
-    # --- NEW: Check for the override flag before modifying the workflow ---
     overrides = comfy_settings.get("workflow_overrides", {})
     if overrides.get("enabled", False):
         print("  -> Applying ComfyUI workflow overrides from config file.")
-        
-        # Handle LoRA: Remove the node if no lora is specified in the config.
         lora_name = overrides.get("lora_name", "None")
         if not lora_name or lora_name.lower() == "none":
             lora_node_id, source_node_id = None, None
@@ -135,11 +135,10 @@ def run_comfyui_image_generation(project_path, config, single_image_details=None
                 for node_data in base_workflow.values():
                     for input_name, input_val in node_data["inputs"].items():
                         if isinstance(input_val, list) and input_val[0] == lora_node_id:
-                            node_data["inputs"][input_name][0] = source_node_id # Bypass
+                            node_data["inputs"][input_name][0] = source_node_id
                 del base_workflow[lora_node_id]
                 print("  -> No LoRA specified. Bypassing LoRA node in workflow.")
 
-        # Apply all other settings from the config to the workflow template
         for node in base_workflow.values():
             class_type = node["class_type"]; inputs = node["inputs"]
             if class_type in ["CheckpointLoader", "CheckpointLoaderSimple"]: inputs["ckpt_name"] = overrides.get("ckpt_name")
@@ -155,9 +154,7 @@ def run_comfyui_image_generation(project_path, config, single_image_details=None
     else:
         print("  -> Overrides disabled. Only replacing prompt placeholders.")
 
-
     rows_to_process = []
-    # ... (The rest of the function remains exactly the same as before) ...
     if single_image_details:
         chapter, prompt_text = single_image_details; scene_num = 1
         for f in sorted(os.listdir(images_folder)):
@@ -173,11 +170,17 @@ def run_comfyui_image_generation(project_path, config, single_image_details=None
             filename_base = _create_filename_base_from_prompt(row['prompt'])
             filename_prefix = f"{str(row['chapter']).zfill(2)}-{str(row['scene']).zfill(2)}_{filename_base}"
             rows_to_process.append({'chapter': row['chapter'], 'scene': row['scene'], 'prompt': row['prompt'], 'filename_prefix': filename_prefix})
+    
     listener = KeyPressListener()
     if not single_image_details: listener.start(); print(f"{Colors.YELLOW}Press 'X' at any time to gracefully stop.{Colors.ENDC}")
+    
+    interrupted = False
     try:
         for item in rows_to_process:
-            if listener.is_interrupt_pressed(): print("\nUser interruption detected. Halting generation."); break
+            if listener.is_interrupt_pressed(): 
+                print("\nUser interruption detected. Halting generation.")
+                interrupted = True
+                break
             output_path = os.path.join(images_folder, f"{item['filename_prefix']}.png")
             if not single_image_details and os.path.exists(output_path):
                 print(f"Skipping {os.path.basename(output_path)}, already exists."); continue
@@ -199,61 +202,45 @@ def run_comfyui_image_generation(project_path, config, single_image_details=None
     finally:
         listener.stop()
 
+    return interrupted
+
 def run_comfyui_upscaling(project_path, config):
-    """Manages the batch upscaling of images using ComfyUI."""
+    # This function does not need to change as it is not part of the style tester loop
     comfy_settings = config.get("comfyui_settings", {})
-    # This now correctly targets the 'upscaling' block for all its settings
     upscale_settings = comfy_settings.get("upscaling", {})
     api_address = comfy_settings.get("api_address")
     comfyui_path = comfy_settings.get("comfyui_path")
-    
     if not comfyui_path or not os.path.isdir(comfyui_path):
-        print(f"{Colors.RED}ERROR: 'comfyui_path' is not set or is invalid in your config.json.{Colors.ENDC}")
-        print("Please set it to the root of your ComfyUI installation folder."); return
-    
+        print(f"{Colors.RED}ERROR: 'comfyui_path' is not set or is invalid in your config.json.{Colors.ENDC}"); return
     source_folder = os.path.join(project_path, "images")
     target_folder = os.path.join(project_path, "images_upscaled")
     os.makedirs(target_folder, exist_ok=True)
-
     try:
-        # This line is now corrected to look inside upscale_settings
         with open(upscale_settings['workflow_file'], 'r') as f: base_workflow = json.load(f)
     except Exception as e:
         print(f"ERROR: Could not load ComfyUI upscale workflow file. {e}"); return
-    
     images_to_process = [f for f in sorted(os.listdir(source_folder)) if f.lower().endswith(('.png', '.jpg', '.jpeg')) and not os.path.exists(os.path.join(target_folder, f))]
     if not images_to_process:
         print("All images have already been upscaled."); return
-
     print(f"Found {len(images_to_process)} image(s) to upscale. {Colors.YELLOW}Press 'X' to stop.{Colors.ENDC}")
     listener = KeyPressListener(); listener.start()
     try:
         for i, filename in enumerate(images_to_process):
             if listener.is_interrupt_pressed(): print("\nUser interruption detected."); break
             print(f"\n[{i+1}/{len(images_to_process)}] Upscaling {filename}...")
-            
             source_path = os.path.join(source_folder, filename)
-            
             with open(source_path, 'rb') as f: image_data = f.read()
             files = {'image': (filename, image_data, 'image/png'), 'overwrite': (None, 'true')}
             resp = requests.post(f"http://{api_address}/upload/image", files=files)
             if resp.status_code != 200:
                 print(f"  -> {Colors.RED}ERROR: Failed to upload image to ComfyUI.{Colors.ENDC}"); continue
-            
             uploaded_filename = resp.json()['name']
-
             workflow = copy.deepcopy(base_workflow)
             for node in workflow.values():
-                if node['class_type'] == 'LoadImage':
-                    node['inputs']['image'] = uploaded_filename
-                if node['class_type'] == 'UpscaleModelLoader':
-                    # This also correctly reads from the upscale_settings dict now
-                    node['inputs']['model_name'] = upscale_settings.get('upscaler_model')
-                if node['class_type'] == 'SaveImage':
-                    node['inputs']['filename_prefix'] = f"{os.path.splitext(filename)[0]}_upscaled"
-            
+                if node['class_type'] == 'LoadImage': node['inputs']['image'] = uploaded_filename
+                if node['class_type'] == 'UpscaleModelLoader': node['inputs']['model_name'] = upscale_settings.get('upscaler_model')
+                if node['class_type'] == 'SaveImage': node['inputs']['filename_prefix'] = f"{os.path.splitext(filename)[0]}_upscaled"
             output_filename = _queue_comfy_prompt(workflow, api_address, return_filename=True)
-
             if output_filename:
                 comfy_output_path = os.path.join(comfyui_path, "output", output_filename)
                 target_path = os.path.join(target_folder, filename)
@@ -268,7 +255,10 @@ def run_comfyui_upscaling(project_path, config):
         listener.stop()
 
 def run_forge_image_generation(project_path, config, single_image_details=None):
-    """Runs the image generation process using Forge/A1111 API."""
+    """
+    Runs the image generation process using Forge/A1111 API.
+    Returns True if interrupted by the user, otherwise False.
+    """
     forge_settings = config.get("forge_settings", {})
     common = config.get("common_settings", {})
     project_name = os.path.basename(project_path)
@@ -276,7 +266,7 @@ def run_forge_image_generation(project_path, config, single_image_details=None):
     images_folder = os.path.join(project_path, "images")
     os.makedirs(images_folder, exist_ok=True)
     if not single_image_details and not os.path.exists(csv_path):
-        print(f"ERROR: Prompts file not found at '{csv_path}'."); return
+        print(f"ERROR: Prompts file not found at '{csv_path}'."); return False
     rows_to_process = []
     if single_image_details:
         chapter, prompt_text = single_image_details; scene_num = 1
@@ -293,11 +283,17 @@ def run_forge_image_generation(project_path, config, single_image_details=None):
             filename_base = _create_filename_base_from_prompt(row['prompt'])
             filename = f"{str(row['chapter']).zfill(2)}-{str(row['scene']).zfill(2)}_{filename_base}.png"
             rows_to_process.append({'chapter': row['chapter'], 'scene': row['scene'], 'prompt': row['prompt'], 'filename': filename})
+
     listener = KeyPressListener()
     if not single_image_details: listener.start(); print(f"{Colors.YELLOW}Press 'X' at any time to gracefully stop.{Colors.ENDC}")
+    
+    interrupted = False
     try:
         for item in rows_to_process:
-            if listener.is_interrupt_pressed(): print("\nUser interruption detected."); break
+            if listener.is_interrupt_pressed(): 
+                print("\nUser interruption detected.")
+                interrupted = True
+                break
             output_path = os.path.join(images_folder, item['filename'])
             if not single_image_details and os.path.exists(output_path):
                 print(f"Skipping {item['filename']}, already exists."); continue
@@ -317,9 +313,11 @@ def run_forge_image_generation(project_path, config, single_image_details=None):
                 break 
     finally:
         listener.stop()
+    
+    return interrupted
 
 def run_forge_upscaling(project_path, config):
-    """Manages batch upscaling for Forge."""
+    # This function does not need to change
     forge_settings = config.get("forge_settings", {})
     source_folder = os.path.join(project_path, "images")
     target_folder = os.path.join(project_path, "images_upscaled")
@@ -341,7 +339,7 @@ def run_forge_upscaling(project_path, config):
         listener.stop()
 
 def _upscale_single_image_forge(source_path, target_path, forge_settings):
-    """Sends a single image to the 'extras' API for Forge."""
+    # This function does not need to change
     settings = forge_settings.get("upscaling", {})
     url = forge_settings.get("api_url", "").replace('txt2img', 'extra-single-image')
     upscaler_name_with_ext = settings.get("upscaler", "None")

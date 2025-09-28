@@ -78,3 +78,6 @@ global_config.json
 zExportFiles.ps1
 debug_epub.py
 prompt_template.txt.template
+Styles/
+Comfy_Workflows/sdxl_reference.json
+prompt_template_working.txt

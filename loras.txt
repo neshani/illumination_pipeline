@@ -1,0 +1,31 @@
+SDXL\40sTechnicolorCyberpunk.safetensors|ArsMovieStill, movie still from a technicolor 1940s cyberpunk film
+SDXL\aidmaMidjourneyV6.1-v0.1.safetensors|midjourneyv6.1
+SDXL\ArsMJStyle-ImpressionismSDXL.safetensors|ArsMJStyle, Impressionism
+SDXL\ArsMJStyleSDXL_-_Mosaic.safetensors|ArsMJStyle, Mosaic
+SDXL\ArsMJStyle_-_Vintage_Future.safetensors|ArsMJStyle, ArtDecoVintageFuture
+SDXL\Ars_Niji_Style_SDXL.safetensors|ArsNijiStyle
+SDXL\ArtNouveau2SDXL.safetensors|ArsMJStyle, Art Nouveau
+SDXL\Art_Deco.safetensors|ArsMJStyle, Art Deco
+SDXL\Baroque_Space_Opera.safetensors|Sci-Fi Baroque Couture Pulp
+SDXL\comicbookpage style v1.5b.safetensors|comic strip style, comic strip sequence page, comic book strip page, cartoon, anime, drawing, graphic novel
+SDXL\DarkGhibliMJ7SDXL.safetensors|Studio Ghibli Dark Fairytale
+SDXL\Dieselpunk_Propaganda_Art.safetensors|Dieselpunk Propaganda Art
+SDXL\Dreamyvibes artstyle SDXL - Trigger with dreamyvibes artstyle.safetensor|dreamyvibes artstyle
+SDXL\EldritchWatercolor1.1.1.safetensors|watercolor painting
+SDXL\ematamech.safetensors|ematamech
+SDXL\Expressive_Watercolor_Ink_wash.safetensors|ArsMJStyle, Expressive Watercolor Ink Wash
+SDXL\Flat_Cartoon_Illustration.safetensors|ArsMJStyle, Flat Cartoon Illustration
+SDXL\flat_color_anime_xl_v2.safetensors|fca style
+SDXL\HyperdetailedColoredPencilV2SDXL.safetensors|ArsMJStyle, Colored pencil hyperdetailed realism
+SDXL\Hyperdetailed_Illustration.safetensors|ArsMJStyle, HyperDetailed Illustration
+SDXL\Lucid_Verdant_Dream.safetensors|Lucid Verdant Dream
+SDXL\MoviePoster03-02_CE_SDXL_128OT.safetensors|mvpstrCE style, movie poster
+SDXL\Neo-Nihonga_Pop_Surrealism.safetensors|Neo-Nihonga Pop Surrealism
+SDXL\novuschroma43 style.safetensors|novuschroma43 style
+SDXL\Painted World-000006.safetensors|painted world, colorful splashes
+SDXL\ParchartXL_CODA.safetensors|on parchment
+SDXL\Pastel_Reverie.safetensors|ArsMJStyle, Pastel Reverie
+SDXL\Retrocom1-000018.safetensors|Retrocom1, retro comics
+SDXL\Rural_Eldrich.safetensors|Rural Eldrich
+SDXL\Splash_Art_SDXL.safetensors|mad-cbrpnksplshrt
+SDXL\zyd232_ChineseInkStyle_SDXL_v1_0.safetensors|zydink, ink sketch

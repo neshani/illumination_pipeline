@@ -11,6 +11,7 @@ from src.project_manager import (
 )
 from src.llm_handler import run_single_text_test_suite, run_chunking_test_suite, generate_prompts_for_project
 from src.image_generator import run_image_generation, run_upscaling_process
+from src.style_tester import run_style_tester
 from src.utils import Colors, open_folder_in_explorer, open_file, get_menu_choice, get_char
 
 def clear_screen():
@@ -36,8 +37,8 @@ def handle_import_new_book():
     print("(O)pen 'Books' Folder")
     print("(B)ack to Main Menu")
     
-    print("\nSelect a book to import or an option: ", end="", flush=True)
-    choice = get_menu_choice()
+    # MODIFIED: Use standard input() to allow for multi-digit numbers
+    choice = input("\nSelect a book to import or an option: ").lower().strip()
     if choice == 'b': return None
     if choice == 'o':
         open_folder_in_explorer("Books")
@@ -72,6 +73,7 @@ def handle_single_image(project_path):
             print(f"\n{Colors.RED}Invalid format. Please try again. ({e}){Colors.ENDC}")
         
         print("\nGenerate another fill-in image? (y/n): ", end="", flush=True)
+        # UNCHANGED: Still uses fast get_menu_choice for y/n
         another = get_menu_choice()
         if another != 'y': break
 
@@ -80,7 +82,6 @@ def handle_project_menu(project_name, project_path):
         clear_screen()
         print(f"=== Project: {Colors.CYAN}{project_name}{Colors.ENDC} ===")
         
-        # Load the config here to check the generator type
         from src.config_manager import load_project_config
         config = load_project_config(project_path)
         
@@ -94,6 +95,7 @@ def handle_project_menu(project_name, project_path):
             print("(O)pen Project Folder")
             print("(B)ack to Main Menu")
             print("\nSelect an option: ", end="", flush=True)
+            # UNCHANGED: This is a fixed menu, so it uses get_menu_choice
             choice = get_menu_choice()
             if choice == '1': generate_prompts_for_project(project_path); press_enter_to_continue()
             elif choice == 'o': open_folder_in_explorer(project_path)
@@ -110,6 +112,7 @@ def handle_project_menu(project_name, project_path):
             print("(R)e-run prompt generation (deletes existing prompts)")
             print("(B)ack to Main Menu")
             print("\nSelect an option: ", end="", flush=True)
+            # UNCHANGED: This is a fixed menu, so it uses get_menu_choice
             choice = get_menu_choice()
 
             if choice == '1': run_image_generation(project_path); press_enter_to_continue()
@@ -134,6 +137,7 @@ def handle_testing_menu():
         print("[2] Single Text Test (from llm_test_input.txt)")
         print("(B)ack to Main Menu")
         print("\nSelect a test to run: ", end="", flush=True)
+        # UNCHANGED: This is a fixed menu, so it uses get_menu_choice
         choice = get_menu_choice()
         if choice == '1': handle_chunking_test()
         elif choice == '2': run_single_text_test_suite(); press_enter_to_continue()
@@ -147,6 +151,7 @@ def handle_chunking_test():
     print("\nSelect a project to test against:")
     for i, (name, path) in enumerate(projects): print(f"[{i+1}] {name}")
     try:
+        # UNCHANGED: This prompt was already using input()
         proj_index = int(input("\nProject number: ")) - 1
         if not (0 <= proj_index < len(projects)): raise IndexError
         project_path = projects[proj_index][1]
@@ -171,11 +176,13 @@ def main():
             print("\nNo projects found.")
         print("\n---------------------------")
         print("(I)mport New Book from 'Books' folder")
+        print("(S)tyle Library Generator")
         print("(T)esting Suites")
         print("(G)lobal Settings (config file)")
         print("(Q)uit")
-        print("\nSelect a project or an option: ", end="", flush=True)
-        choice = get_menu_choice()
+        
+        # MODIFIED: Use standard input() to allow for multi-digit numbers
+        choice = input("\nSelect a project or an option: ").lower().strip()
 
         if choice == 'q': break
         elif choice == 'i': 
@@ -185,6 +192,9 @@ def main():
             if result:
                 press_enter_to_continue()
                 handle_project_menu(*result)
+        elif choice == 's':
+            run_style_tester()
+            press_enter_to_continue()
         elif choice == 't': handle_testing_menu()
         elif choice == 'g':
             open_file('global_config.json')
