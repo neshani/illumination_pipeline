@@ -81,3 +81,10 @@ prompt_template.txt.template
 Styles/
 Comfy_Workflows/sdxl_reference.json
 prompt_template_working.txt
+Styles-SDXLJugLightning/
+Comfy_Workflows/nunchaku-qwen-image.json
+Comfy_Workflows/nunchaku-flux.1-dev.json
+Styles-SDXLBase/
+Transcripts/
+prompt_template_working - Copy.txt
+loras2.txt

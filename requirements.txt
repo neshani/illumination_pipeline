@@ -4,3 +4,4 @@ ebooklib
 beautifulsoup4
 tqdm
 websocket-client
+Pillow

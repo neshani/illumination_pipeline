@@ -8,9 +8,12 @@ from src.project_manager import (
     find_projects,
     find_importable_epubs,
     create_project_structure,
+    find_importable_transcripts,
+    create_project_from_transcript,
 )
 from src.llm_handler import run_single_text_test_suite, run_chunking_test_suite, generate_prompts_for_project
-from src.image_generator import run_image_generation, run_upscaling_process
+# MODIFIED: Added embed_quotes_into_images to the import list for easier access
+from src.image_generator import run_image_generation, run_upscaling_process, embed_quotes_into_images
 from src.style_tester import run_style_tester
 from src.utils import Colors, open_folder_in_explorer, open_file, get_menu_choice, get_char
 
@@ -25,34 +28,46 @@ def handle_import_new_book():
     clear_screen()
     print("=== Import New Book ===")
     epubs = find_importable_epubs()
-    
-    if epubs:
-        print("Found the following new books in the 'Books' folder:")
-        for i, epub in enumerate(epubs): print(f"[{i+1}] {epub}")
+    transcripts = find_importable_transcripts()
+
+    if not epubs and not transcripts:
+        print(f"\n{Colors.YELLOW}No new files found in the 'Books' or 'Transcripts' folders.{Colors.ENDC}")
     else:
-        print(f"\n{Colors.YELLOW}No new .epub files found in the 'Books' folder.{Colors.ENDC}")
-        print("Add your .epub files there to get started.")
+        if epubs:
+            print("\nFound the following new books (EPUB):")
+            for i, epub in enumerate(epubs):
+                print(f"[{i+1}] {epub}")
+        if transcripts:
+            print("\nFound the following new transcripts (TXT):")
+            # Start numbering transcripts after the epubs
+            for i, transcript in enumerate(transcripts):
+                print(f"[{i + len(epubs) + 1}] {transcript}")
 
     print("\n---------------------------")
-    print("(O)pen 'Books' Folder")
+    print("(O)pen Project Folders")
     print("(B)ack to Main Menu")
-    
-    # MODIFIED: Use standard input() to allow for multi-digit numbers
-    choice = input("\nSelect a book to import or an option: ").lower().strip()
+
+    choice = input("\nSelect a file to import or an option: ").lower().strip()
     if choice == 'b': return None
     if choice == 'o':
         open_folder_in_explorer("Books")
-        return "refresh" # Special signal to re-run this menu
+        open_folder_in_explorer("Transcripts")
+        return "refresh"
 
     try:
         index = int(choice) - 1
         if 0 <= index < len(epubs):
+            # User chose an EPUB
             return create_project_structure(epubs[index])
+        elif len(epubs) <= index < len(epubs) + len(transcripts):
+            # User chose a Transcript
+            transcript_index = index - len(epubs)
+            return create_project_from_transcript(transcripts[transcript_index])
         else:
             print("Invalid selection.")
     except (ValueError, IndexError):
         print("Invalid input.")
-    
+
     press_enter_to_continue()
     return None
 
@@ -73,7 +88,6 @@ def handle_single_image(project_path):
             print(f"\n{Colors.RED}Invalid format. Please try again. ({e}){Colors.ENDC}")
         
         print("\nGenerate another fill-in image? (y/n): ", end="", flush=True)
-        # UNCHANGED: Still uses fast get_menu_choice for y/n
         another = get_menu_choice()
         if another != 'y': break
 
@@ -95,7 +109,6 @@ def handle_project_menu(project_name, project_path):
             print("(O)pen Project Folder")
             print("(B)ack to Main Menu")
             print("\nSelect an option: ", end="", flush=True)
-            # UNCHANGED: This is a fixed menu, so it uses get_menu_choice
             choice = get_menu_choice()
             if choice == '1': generate_prompts_for_project(project_path); press_enter_to_continue()
             elif choice == 'o': open_folder_in_explorer(project_path)
@@ -105,6 +118,7 @@ def handle_project_menu(project_name, project_path):
             print("\n[1] Generate/Continue image generation")
             print("[2] Generate a single fill-in image")
             print("[3] Upscale generated images")
+            print("[4] Embed quotes into images")  # NEW MENU OPTION
             print("---------------------------")
             print("(O)pen Project Folder")
             if is_comfy_project:
@@ -112,12 +126,14 @@ def handle_project_menu(project_name, project_path):
             print("(R)e-run prompt generation (deletes existing prompts)")
             print("(B)ack to Main Menu")
             print("\nSelect an option: ", end="", flush=True)
-            # UNCHANGED: This is a fixed menu, so it uses get_menu_choice
             choice = get_menu_choice()
 
             if choice == '1': run_image_generation(project_path); press_enter_to_continue()
             elif choice == '2': handle_single_image(project_path)
             elif choice == '3': run_upscaling_process(project_path); press_enter_to_continue()
+            elif choice == '4':  # NEW HANDLER
+                embed_quotes_into_images(project_path)
+                press_enter_to_continue()
             elif choice == 'o': open_folder_in_explorer(project_path)
             elif choice == 'c' and is_comfy_project:
                 from src.project_manager import cleanup_comfyui_output_for_project
@@ -137,7 +153,6 @@ def handle_testing_menu():
         print("[2] Single Text Test (from llm_test_input.txt)")
         print("(B)ack to Main Menu")
         print("\nSelect a test to run: ", end="", flush=True)
-        # UNCHANGED: This is a fixed menu, so it uses get_menu_choice
         choice = get_menu_choice()
         if choice == '1': handle_chunking_test()
         elif choice == '2': run_single_text_test_suite(); press_enter_to_continue()
@@ -151,7 +166,6 @@ def handle_chunking_test():
     print("\nSelect a project to test against:")
     for i, (name, path) in enumerate(projects): print(f"[{i+1}] {name}")
     try:
-        # UNCHANGED: This prompt was already using input()
         proj_index = int(input("\nProject number: ")) - 1
         if not (0 <= proj_index < len(projects)): raise IndexError
         project_path = projects[proj_index][1]
@@ -181,7 +195,6 @@ def main():
         print("(G)lobal Settings (config file)")
         print("(Q)uit")
         
-        # MODIFIED: Use standard input() to allow for multi-digit numbers
         choice = input("\nSelect a project or an option: ").lower().strip()
 
         if choice == 'q': break

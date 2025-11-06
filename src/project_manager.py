@@ -8,6 +8,7 @@ import warnings
 from ebooklib import epub
 from bs4 import BeautifulSoup
 from pathlib import Path
+import shutil
 
 # Local imports
 from src.config_manager import get_default_project_config
@@ -17,11 +18,13 @@ from src.utils import Colors
 warnings.filterwarnings("ignore", category=FutureWarning, module='ebooklib.epub')
 
 BOOKS_FOLDER = "Books"
+TRANSCRIPTS_FOLDER = "Transcripts"
 ILLUMINATIONS_FOLDER = "Illuminations"
 
 def ensure_project_folders_exist():
     """Creates the core input/output folders if they don't exist."""
     os.makedirs(BOOKS_FOLDER, exist_ok=True)
+    os.makedirs(TRANSCRIPTS_FOLDER, exist_ok=True)
     os.makedirs(ILLUMINATIONS_FOLDER, exist_ok=True)
 
 def find_projects():
@@ -45,6 +48,41 @@ def find_importable_epubs():
             if book_name not in existing_project_names:
                 epubs.append(item)
     return sorted(epubs)
+
+def find_importable_transcripts():
+    """Finds .txt files in the Transcripts folder that don't have a project yet."""
+    transcripts, existing_project_names = [], [p[0] for p in find_projects()]
+    if not os.path.exists(TRANSCRIPTS_FOLDER): return []
+    for item in os.listdir(TRANSCRIPTS_FOLDER):
+        if item.lower().endswith(".txt"):
+            book_name = Path(item).stem
+            if book_name not in existing_project_names:
+                transcripts.append(item)
+    return sorted(transcripts)
+
+def create_project_from_transcript(transcript_name):
+    """Creates the folder structure by copying a pre-made transcript."""
+    transcript_path = os.path.join(TRANSCRIPTS_FOLDER, transcript_name)
+    book_name = Path(transcript_path).stem
+    project_folder = os.path.join(ILLUMINATIONS_FOLDER, book_name)
+    images_folder = os.path.join(project_folder, "images")
+
+    print(f"Creating new project from transcript '{book_name}'...")
+    os.makedirs(images_folder, exist_ok=True)
+
+    # Copy the transcript to its new home as the _clean.txt file
+    clean_txt_path = os.path.join(project_folder, f"{book_name}_clean.txt")
+    shutil.copy(transcript_path, clean_txt_path)
+    print(f"  - Copied transcript to '{clean_txt_path}'")
+
+    # Create the default config file
+    config_path = os.path.join(project_folder, "config.json")
+    default_config = get_default_project_config()
+    with open(config_path, 'w') as f: json.dump(default_config, f, indent=4)
+    print(f"  - Created project 'config.json' from global defaults.")
+
+    print(f"\n{Colors.GREEN}Project created successfully. Ready for prompt generation.{Colors.ENDC}")
+    return book_name, project_folder
 
 def create_project_structure(epub_name):
     """Creates the folder structure and initial files for a new project."""

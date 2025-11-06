@@ -12,12 +12,16 @@ import websocket
 import random
 import shutil
 
+# NEW IMPORTS FOR METADATA EMBEDDING
+from PIL import Image, PngImagePlugin
+
 from src.config_manager import load_project_config
 from src.utils import Colors
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
+# --- KeyPressListener class remains unchanged ---
 try:
     import msvcrt
     class KeyPressListener:
@@ -47,10 +51,66 @@ except ImportError:
         def start(self):self._thread.start()
         def stop(self):self._stop_event.set()
         def is_interrupt_pressed(self):return self.key_pressed==self.interrupt_key
+# --- End of KeyPressListener class ---
 
 def _create_filename_base_from_prompt(prompt_text):
     first_words = prompt_text.split()[:6]; base = "_".join(first_words)
     return "".join(c for c in base if c.isalnum() or c == '_').lower()
+
+# --- NEW FUNCTION FOR EMBEDDING QUOTES ---
+def embed_quotes_into_images(project_path):
+    """Reads the project's CSV file and embeds the text from the 'quote' column into the metadata of corresponding PNG files."""
+    clear_screen()
+    print("--- Embedding Quotes into Image Metadata ---")
+    project_name = os.path.basename(project_path)
+    csv_path = os.path.join(project_path, f"{project_name}_prompts.csv")
+    images_folder = os.path.join(project_path, "images")
+
+    if not os.path.exists(csv_path):
+        print(f"{Colors.RED}ERROR: Prompts CSV file not found at '{csv_path}'. Cannot embed quotes.{Colors.ENDC}"); return
+    if not os.path.exists(images_folder):
+        print(f"{Colors.RED}ERROR: 'images' folder not found. Cannot embed quotes.{Colors.ENDC}"); return
+
+    try:
+        df = pd.read_csv(csv_path, sep='|')
+        if 'quote' not in df.columns:
+            print(f"{Colors.RED}ERROR: The CSV file does not contain a 'quote' column.{Colors.ENDC}"); return
+    except Exception as e:
+        print(f"{Colors.RED}ERROR: Failed to read or parse the CSV file: {e}{Colors.ENDC}"); return
+
+    embedded_count = 0; skipped_count = 0; not_found_count = 0
+    print(f"Found {len(df)} entries in the prompts file. Starting embedding process...")
+
+    for index, row in df.iterrows():
+        filename_base = _create_filename_base_from_prompt(row['prompt'])
+        filename = f"{str(row['chapter']).zfill(2)}-{str(row['scene']).zfill(2)}_{filename_base}.png"
+        image_path = os.path.join(images_folder, filename)
+        quote = row.get('quote')
+
+        if pd.isna(quote) or str(quote).strip() == "":
+            skipped_count += 1; continue
+        if not os.path.exists(image_path):
+            not_found_count += 1; continue
+
+        try:
+            image = Image.open(image_path)
+            metadata = PngImagePlugin.PngInfo()
+            metadata.add_text("Quote", str(quote))
+            image.save(image_path, "PNG", pnginfo=metadata)
+            embedded_count += 1
+            print(f"  -> Embedded quote in: {filename}")
+        except Exception as e:
+            print(f"{Colors.RED}  -> ERROR: Failed to embed quote in {filename}. Reason: {e}{Colors.ENDC}")
+    
+    print("\n--- Embedding Complete ---")
+    print(f"{Colors.GREEN}Successfully embedded quotes in {embedded_count} images.{Colors.ENDC}")
+    if skipped_count > 0:
+        print(f"{Colors.YELLOW}{skipped_count} rows were skipped due to missing quotes.{Colors.ENDC}")
+    if not_found_count > 0:
+         print(f"{Colors.YELLOW}{not_found_count} matching images were not found in the 'images' folder.{Colors.ENDC}")
+
+
+# --- All other functions (run_image_generation, run_comfyui_image_generation, etc.) remain unchanged ---
 
 def run_image_generation(project_path, single_image_details=None):
     """Router for image generation. Calls the correct function based on config."""

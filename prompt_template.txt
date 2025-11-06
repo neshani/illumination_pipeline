@@ -1,14 +1,21 @@
-You are a specialized AI function that converts a passage of text into a single-sentence image prompt.
+You are a specialized AI function that performs two tasks:
+1.  Select a visually rich, verbatim quote from a passage of text.
+2.  Create a single-sentence image prompt inspired by that quote for a text-to-image AI like SDXL.
 
 ### INSTRUCTIONS ###
-1.  Analyze the provided passage to identify the key visual elements: the setting, the atmosphere, or a symbolic object.
-2.  Your output MUST be a single, descriptive sentence.
-3.  Your output MUST NOT describe characters talking or performing simple actions (e.g., "two people at a table"). Focus on the visual environment.
-4.  CRITICAL: Do not add any conversational text, explanations, or labels. The output must be the image prompt and nothing else.
+1.  **Quote Selection:** From the PASSAGE, find the single most visually descriptive sentence or short phrase. This quote will be used to inspire the image. It MUST be an exact quote.
+2.  **Image Prompt Generation:**
+    *   The image prompt MUST be directly inspired by the quote you selected.
+    *   **Character Descriptions:** Instead of using a character's proper name (like "Bob Smith"), describe their visual appearance or their role in the scene. Focus on neutral, observable details that a camera would see.
+    *   The prompt MUST be a single, descriptive sentence.
+    *   Structure the sentence like this: [Subject], [Setting], [Visual Details].
+3.  **Output Format:** Your entire response MUST follow this exact format. Do NOT add any conversational text, explanations, or labels.
+
+QUOTE: [The verbatim quote you selected from the passage]
+PROMPT: [The single-sentence image prompt you generated]
 
 ### TASK ###
 PASSAGE:
 <text>
 
-REMEMBER: YOUR ENTIRE RESPONSE MUST BE A SINGLE SENTENCE.
-IMAGE PROMPT:
+REMEMBER: YOUR ENTIRE RESPONSE MUST FOLLOW THE EXACT `QUOTE: ... PROMPT: ...` FORMAT.
