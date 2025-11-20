@@ -11,11 +11,12 @@ import uuid
 import websocket
 import random
 import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # NEW IMPORTS FOR METADATA EMBEDDING
 from PIL import Image, PngImagePlugin
 
-from src.config_manager import load_project_config
+from src.config_manager import load_project_config, load_global_config
 from src.utils import Colors
 
 def clear_screen():
@@ -58,10 +59,31 @@ def _create_filename_base_from_prompt(prompt_text):
     return "".join(c for c in base if c.isalnum() or c == '_').lower()
 
 # --- NEW FUNCTION FOR EMBEDDING QUOTES ---
+def _embed_quote_worker(image_path, quote):
+    """Worker function to embed a quote into a single image. Returns status and path."""
+    try:
+        image = Image.open(image_path)
+        metadata = PngImagePlugin.PngInfo()
+        metadata.add_text("Quote", str(quote))
+        image.save(image_path, "PNG", pnginfo=metadata)
+        return "embedded", image_path
+    except Exception as e:
+        return "error", image_path, str(e)
+
+# --- REFACTORED FUNCTION FOR MULTI-THREADED QUOTE EMBEDDING ---
 def embed_quotes_into_images(project_path):
-    """Reads the project's CSV file and embeds the text from the 'quote' column into the metadata of corresponding PNG files."""
+    """Reads the project's CSV file and embeds the text from the 'quote' column 
+       into the metadata of corresponding PNG files using multiple threads."""
     clear_screen()
-    print("--- Embedding Quotes into Image Metadata ---")
+    print("--- Embedding Quotes into Image Metadata (Multi-threaded) ---")
+
+    try:
+        global_config = load_global_config()
+        max_workers = global_config.get("threading_settings", {}).get("quote_embedding_threads", 4)
+    except FileNotFoundError:
+        print(f"{Colors.YELLOW}WARNING: global_config.json not found. Defaulting to 4 threads.{Colors.ENDC}")
+        max_workers = 4
+
     project_name = os.path.basename(project_path)
     csv_path = os.path.join(project_path, f"{project_name}_prompts.csv")
     images_folder = os.path.join(project_path, "images")
@@ -78,8 +100,9 @@ def embed_quotes_into_images(project_path):
     except Exception as e:
         print(f"{Colors.RED}ERROR: Failed to read or parse the CSV file: {e}{Colors.ENDC}"); return
 
-    embedded_count = 0; skipped_count = 0; not_found_count = 0
-    print(f"Found {len(df)} entries in the prompts file. Starting embedding process...")
+    tasks = []
+    skipped_count = 0; not_found_count = 0
+    print(f"Found {len(df)} entries. Preparing tasks...")
 
     for index, row in df.iterrows():
         filename_base = _create_filename_base_from_prompt(row['prompt'])
@@ -91,26 +114,36 @@ def embed_quotes_into_images(project_path):
             skipped_count += 1; continue
         if not os.path.exists(image_path):
             not_found_count += 1; continue
+        tasks.append((image_path, quote))
 
-        try:
-            image = Image.open(image_path)
-            metadata = PngImagePlugin.PngInfo()
-            metadata.add_text("Quote", str(quote))
-            image.save(image_path, "PNG", pnginfo=metadata)
-            embedded_count += 1
-            print(f"  -> Embedded quote in: {filename}")
-        except Exception as e:
-            print(f"{Colors.RED}  -> ERROR: Failed to embed quote in {filename}. Reason: {e}{Colors.ENDC}")
-    
+    if not tasks:
+        print("\nNo images found that need quotes embedded.")
+    else:
+        print(f"Starting embedding process for {len(tasks)} images using {max_workers} threads...")
+        embedded_count = 0; error_count = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_task = {executor.submit(_embed_quote_worker, image_path, quote): (image_path, quote) for image_path, quote in tasks}
+            for future in as_completed(future_to_task):
+                try:
+                    status, path, *error_msg = future.result()
+                    if status == "embedded":
+                        embedded_count += 1
+                        print(f"  -> Embedded quote in: {os.path.basename(path)}")
+                    elif status == "error":
+                        error_count += 1
+                        print(f"{Colors.RED}  -> ERROR: Failed to embed quote in {os.path.basename(path)}. Reason: {error_msg[0]}{Colors.ENDC}")
+                except Exception as e:
+                    error_count += 1
+                    print(f"{Colors.RED}  -> ERROR: An unexpected exception occurred for a task. Reason: {e}{Colors.ENDC}")
+        print(f"\n{Colors.GREEN}Successfully embedded quotes in {embedded_count} images.{Colors.ENDC}")
+        if error_count > 0:
+            print(f"{Colors.RED}{error_count} images failed to process due to errors.{Colors.ENDC}")
+
     print("\n--- Embedding Complete ---")
-    print(f"{Colors.GREEN}Successfully embedded quotes in {embedded_count} images.{Colors.ENDC}")
     if skipped_count > 0:
         print(f"{Colors.YELLOW}{skipped_count} rows were skipped due to missing quotes.{Colors.ENDC}")
     if not_found_count > 0:
          print(f"{Colors.YELLOW}{not_found_count} matching images were not found in the 'images' folder.{Colors.ENDC}")
-
-
-# --- All other functions (run_image_generation, run_comfyui_image_generation, etc.) remain unchanged ---
 
 def run_image_generation(project_path, single_image_details=None):
     """Router for image generation. Calls the correct function based on config."""

@@ -15,6 +15,15 @@
       "ignore_lines_starting_with": []
     }
   },
+  "threading_settings": {
+    "__comment__": "Settings for multi-threaded operations.",
+    "quote_embedding_threads": 8
+  },
+
+  "comfyui_settings": {
+    "__comment__": "Global settings for ComfyUI integration.",
+    "startup_script": "f:/ai/ComfyUI/run_nvidia_gpu.bat"
+  },
 
   "default_project_settings": {
     "__comment__": "These settings will be copied to a new project's config.json upon creation.",

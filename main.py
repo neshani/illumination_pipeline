@@ -12,10 +12,10 @@ from src.project_manager import (
     create_project_from_transcript,
 )
 from src.llm_handler import run_single_text_test_suite, run_chunking_test_suite, generate_prompts_for_project
-# MODIFIED: Added embed_quotes_into_images to the import list for easier access
 from src.image_generator import run_image_generation, run_upscaling_process, embed_quotes_into_images
 from src.style_tester import run_style_tester
-from src.utils import Colors, open_folder_in_explorer, open_file, get_menu_choice, get_char
+from src.config_manager import load_global_config
+from src.utils import Colors, open_folder_in_explorer, open_file, get_menu_choice, get_char, start_comfyui
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -190,7 +190,8 @@ def main():
             print("\nNo projects found.")
         print("\n---------------------------")
         print("(I)mport New Book from 'Books' folder")
-        print("(S)tyle Library Generator")
+        print("(S)tart ComfyUI")
+        print("(L)ibrary Generator (Style Tester)")
         print("(T)esting Suites")
         print("(G)lobal Settings (config file)")
         print("(Q)uit")
@@ -200,12 +201,22 @@ def main():
         if choice == 'q': break
         elif choice == 'i': 
             result = handle_import_new_book()
-            while result == "refresh": # Loop back if user opened folder
+            while result == "refresh":
                 result = handle_import_new_book()
             if result:
                 press_enter_to_continue()
                 handle_project_menu(*result)
         elif choice == 's':
+            try:
+                global_config = load_global_config()
+                script_path = global_config.get("comfyui_settings", {}).get("startup_script")
+                start_comfyui(script_path)
+            except FileNotFoundError:
+                print(f"{Colors.RED}ERROR: global_config.json not found!{Colors.ENDC}")
+            except Exception as e:
+                print(f"{Colors.RED}An unexpected error occurred: {e}{Colors.ENDC}")
+            press_enter_to_continue()
+        elif choice == 'l':
             run_style_tester()
             press_enter_to_continue()
         elif choice == 't': handle_testing_menu()

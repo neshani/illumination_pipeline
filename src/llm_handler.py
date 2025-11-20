@@ -8,6 +8,12 @@ from tqdm import tqdm
 from src.config_manager import load_global_config
 from src.utils import Colors
 
+REFUSAL_KEYWORDS = [
+    "i cannot", "i can't", "i apologize", "i'm sorry", "im sorry", 
+    "unable to generate", "policy", "forbidden", "restricted", 
+    "cannot fulfill", "as an ai", "language model"
+]
+
 def _smart_chunk_text(text, max_chunk_words):
     """
     Splits a large text into smaller chunks based on a maximum word count.
