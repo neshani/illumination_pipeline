@@ -1,0 +1,18 @@
+I need to illustrate a book with this genre/vibe: '{vibe}'.
+Please generate {num_styles} distinct visual style descriptions.
+
+CRITICAL INSTRUCTION:
+You must define these styles by referencing specific ARTISTS, ART MOVEMENTS, or PHOTOGRAPHERS.
+Do not just say "oil painting." Say "Oil painting in the style of John Singer Sargent and Greg Rutkowski."
+
+For each style, combine:
+1. A specific medium (e.g., Watercolor, 35mm film, Charcoal, Digital Impasto).
+2. Two or three specific artist names that fit the vibe (mix classic and modern).
+3. Lighting and Color keywords.
+
+Return ONLY a Python-parseable list of strings. Do not describe subject matter.
+
+Example Output:
+1. Concept art style by Simon Stålenhag and Syd Mead, volumetric fog, desaturated industrial palette
+2. 1970s film photography style of William Eggleston, harsh flash, high contrast, kodachrome
+3. Ink and watercolor illustration by Arthur Rackham and Yoshitaka Amano, ethereal lighting, muted earth tones

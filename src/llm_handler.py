@@ -111,21 +111,33 @@ def _get_prompt_template(llm_config):
 
 def _process_chunk(args):
     """
-    Processes a single chunk, parsing for a quote and a prompt with robust fallbacks.
-    Returns a dictionary containing chapter, scene, prompt, and quote.
+    Processes a single chunk. Returns a dict with 'status' indicating success or refusal.
     """
     chunk_data, llm_config, prompt_template = args
     final_prompt = prompt_template.replace("<text>", chunk_data['chunk'])
     raw_response = _get_llm_response(final_prompt, llm_config)
-    if isinstance(raw_response, dict) and 'error' in raw_response:
-        print(f"\nERROR for Chapter {chunk_data['chapter_num']}, Scene {chunk_data['scene_num']}: {raw_response['error']}")
-        return None
 
-    # Initialize variables for parsed data
+    if isinstance(raw_response, dict) and 'error' in raw_response:
+        return {'status': 'error', 'msg': raw_response['error'], 'chapter': chunk_data['chapter_num'], 'scene': chunk_data['scene_num']}
+
+    # --- REFUSAL TRAP ---
+    raw_lower = raw_response.lower()
+    # Check if response is very short and contains refusal words, or just contains strong refusal phrases
+    is_refusal = any(keyword in raw_lower for keyword in REFUSAL_KEYWORDS)
+    
+    if is_refusal:
+        return {
+            'status': 'refusal',
+            'chapter': chunk_data['chapter_num'],
+            'scene': chunk_data['scene_num'],
+            'raw_response': raw_response
+        }
+
+    # ... Proceed with existing parsing logic ...
     parsed_prompt = ""
     parsed_quote = ""
-
-    # Parse the raw response line by line
+    
+    # (Keep your existing parsing loop and fallback logic here)
     for line in raw_response.strip().splitlines():
         line = line.strip()
         if line.lower().startswith("prompt:"):
@@ -133,25 +145,18 @@ def _process_chunk(args):
         elif line.lower().startswith("quote:"):
             parsed_quote = line[len("quote:"):].strip()
 
-    # --- NEW: Clean surrounding quotes from the parsed quote ---
-    if parsed_quote:
-        parsed_quote = parsed_quote.strip('"')
+    if parsed_quote: parsed_quote = parsed_quote.strip('"')
 
-    # --- Fallback Logic ---
     if not parsed_prompt and not parsed_quote:
-        # Case 1: Neither was found. Clean the whole response and use it as the prompt.
-        print(f"\n{Colors.YELLOW}WARNING: Could not parse PROMPT/QUOTE for C:{chunk_data['chapter_num']}-S:{chunk_data['scene_num']}. Using full response as prompt.{Colors.ENDC}")
         parsed_prompt = _clean_response(raw_response, llm_config.get('parsing_config', {}))
-        parsed_quote = " "  # Use a space as a placeholder to keep CSV structure
+        parsed_quote = " "
     elif not parsed_prompt:
-        # Case 2: Quote exists, but prompt is missing. Use the quote as the prompt.
-        print(f"\n{Colors.YELLOW}WARNING: PROMPT missing for C:{chunk_data['chapter_num']}-S:{chunk_data['scene_num']}. Using QUOTE as prompt.{Colors.ENDC}")
         parsed_prompt = parsed_quote
     elif not parsed_quote:
-        # Case 3: Prompt exists, but quote is missing. Use a placeholder for the quote.
         parsed_quote = " "
 
     return {
+        'status': 'success',
         'chapter': chunk_data['chapter_num'],
         'scene': chunk_data['scene_num'],
         'prompt': parsed_prompt,
@@ -248,7 +253,7 @@ def run_single_text_test_suite():
 
 def generate_prompts_for_project(project_path):
     """Generates a prompts CSV file from a book's clean text file using a warm-up prompt."""
-    clear_screen(); print("--- Starting High-Speed Prompt Generation (with Smart Chunking) ---")
+    clear_screen(); print("--- Starting High-Speed Prompt Generation (with Refusal Trap) ---")
     project_name = os.path.basename(project_path)
     clean_txt_path = os.path.join(project_path, f"{project_name}_clean.txt")
     output_csv_path = os.path.join(project_path, f"{project_name}_prompts.csv")
@@ -260,6 +265,7 @@ def generate_prompts_for_project(project_path):
     except Exception as e:
         print(f"ERROR: Could not load required files. {e}"); return
     
+    # Chunking
     chapters = [ch for ch in full_text.split("==CHAPTER==") if ch.strip()]
     chunk_size = llm_config.get("chunk_size_words", 350)
     
@@ -271,46 +277,72 @@ def generate_prompts_for_project(project_path):
             scene_num = j + 1
             tasks.append({'chunk': chunk, 'chapter_num': chapter_num, 'scene_num': scene_num})
     
-    if not tasks:
-        print("No text chunks found to process."); return
+    if not tasks: print("No text chunks found."); return
+    print(f"Found {len(chapters)} chapters. {len(tasks)} chunks total.")
     
-    print(f"Found {len(chapters)} chapters. Text was divided into {len(tasks)} chunks of approx. {chunk_size} words each.")
-    
-    all_prompts = []
-    
-    # --- WARM-UP LOGIC ---
+    # --- WARM-UP ---
     first_task = tasks.pop(0)
-    print("\nSending a single 'warm-up' prompt to ensure the LLM is loaded...")
-    
+    print("\nSending 'warm-up' prompt to verify LLM connection...")
     first_result = _process_chunk((first_task, llm_config, prompt_template))
     
-    if first_result:
-        print("  -> Warm-up successful. LLM is loaded and responding.")
-        all_prompts.append(first_result)
+    if first_result and first_result['status'] != 'error':
+        print("  -> Warm-up successful.")
     else:
-        print(f"{Colors.RED}  -> The warm-up prompt failed. Halting generation.{Colors.ENDC}")
-        return
+        print(f"{Colors.RED}  -> Warm-up failed. Halting.{Colors.ENDC}"); return
 
-    # Process remaining tasks in parallel
+    all_results = [first_result]
+
+    # --- PARALLEL PROCESSING ---
     if tasks:
         num_workers = llm_config.get("concurrent_requests", 4)
-        print(f"Processing the remaining {len(tasks)} chunks with {num_workers} parallel workers...")
-        tasks_with_config = [(task, llm_config, prompt_template) for task in tasks]
+        print(f"Processing remaining {len(tasks)} chunks with {num_workers} workers...")
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
-            results = list(tqdm(executor.map(_process_chunk, tasks_with_config, chunksize=1), total=len(tasks), desc="Generating Prompts"))
+            # Submit all tasks
+            future_to_task = {
+                executor.submit(_process_chunk, (task, llm_config, prompt_template)): task 
+                for task in tasks
+            }
+            
+            # Process as they complete
+            for future in tqdm(concurrent.futures.as_completed(future_to_task), total=len(tasks), desc="Generating"):
+                try:
+                    result = future.result()
+                    if result:
+                        all_results.append(result)
+                except Exception as e:
+                    task = future_to_task[future]
+                    print(f"\n{Colors.RED}Exception processing Ch{task['chapter_num']} Sc{task['scene_num']}: {e}{Colors.ENDC}")
 
-        successful_results = [res for res in results if res is not None]
-        all_prompts.extend(successful_results)
-    
-    if not all_prompts:
-        print("\nNo prompts were successfully generated."); return
+    # --- SAVING RESULTS ---
+    valid_prompts = []
+    refusals = []
 
-    all_prompts.sort(key=lambda x: (x['chapter'], x['scene']))
-    # Define the desired column order for the output CSV
-    df = pd.DataFrame(all_prompts, columns=['chapter', 'scene', 'prompt', 'quote'])
-    df.to_csv(output_csv_path, sep='|', index=False, header=True)
-    print(f"\nSUCCESS: Saved {len(all_prompts)} prompts and quotes to '{output_csv_path}'")
+    for res in all_results:
+        if not res: continue
+        if res['status'] == 'success':
+            valid_prompts.append(res)
+        elif res['status'] == 'refusal':
+            refusals.append(res)
+        elif res['status'] == 'error':
+            print(f"{Colors.RED}Error in Ch{res['chapter']}: {res['msg']}{Colors.ENDC}")
+
+    if valid_prompts:
+        valid_prompts.sort(key=lambda x: (x['chapter'], x['scene']))
+        df = pd.DataFrame(valid_prompts)
+        df = df.drop(columns=['status'], errors='ignore')
+        df.to_csv(output_csv_path, sep='|', index=False)
+        print(f"\n{Colors.GREEN}SUCCESS: Saved {len(valid_prompts)} prompts to '{output_csv_path}'{Colors.ENDC}")
+    else:
+        print(f"\n{Colors.YELLOW}WARNING: No valid prompts were generated.{Colors.ENDC}")
+
+    if refusals:
+        refusal_log_path = os.path.join(project_path, "refusals.log")
+        with open(refusal_log_path, 'w', encoding='utf-8') as f:
+            for ref in refusals:
+                f.write(f"Chapter {ref['chapter']}, Scene {ref['scene']}:\n{ref['raw_response']}\n\n{'-'*40}\n\n")
+        print(f"\n{Colors.YELLOW}WARNING: {len(refusals)} chunks were refused by the LLM.{Colors.ENDC}")
+        print(f"  -> Logged to: {refusal_log_path}")
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')

@@ -70,11 +70,10 @@ def _embed_quote_worker(image_path, quote):
     except Exception as e:
         return "error", image_path, str(e)
 
-# --- REFACTORED FUNCTION FOR MULTI-THREADED QUOTE EMBEDDING ---
 def embed_quotes_into_images(project_path):
     """Reads the project's CSV file and embeds the text from the 'quote' column 
        into the metadata of corresponding PNG files using multiple threads."""
-    clear_screen()
+    # clear_screen() # Optional: Commented out to allow batch logs to scroll
     print("--- Embedding Quotes into Image Metadata (Multi-threaded) ---")
 
     try:
@@ -105,6 +104,11 @@ def embed_quotes_into_images(project_path):
     print(f"Found {len(df)} entries. Preparing tasks...")
 
     for index, row in df.iterrows():
+        # --- FIX: Skip invalid prompts (Prevents crash on None/Float) ---
+        if pd.isna(row['prompt']) or str(row['prompt']).strip().lower() == 'none' or not str(row['prompt']).strip():
+            # If prompt is invalid, we can't determine the filename, so we skip
+            continue
+
         filename_base = _create_filename_base_from_prompt(row['prompt'])
         filename = f"{str(row['chapter']).zfill(2)}-{str(row['scene']).zfill(2)}_{filename_base}.png"
         image_path = os.path.join(images_folder, filename)
@@ -260,6 +264,11 @@ def run_comfyui_image_generation(project_path, config, single_image_details=None
     else:
         df = pd.read_csv(csv_path, sep='|')
         for _, row in df.iterrows():
+            # --- FIX: Skip invalid or "None" prompts ---
+            if pd.isna(row['prompt']) or str(row['prompt']).strip().lower() == 'none' or str(row['prompt']).strip() == "":
+                print(f"{Colors.YELLOW}Skipping Chapter {row['chapter']}, Scene {row['scene']}: No valid prompt found.{Colors.ENDC}")
+                continue
+            
             filename_base = _create_filename_base_from_prompt(row['prompt'])
             filename_prefix = f"{str(row['chapter']).zfill(2)}-{str(row['scene']).zfill(2)}_{filename_base}"
             rows_to_process.append({'chapter': row['chapter'], 'scene': row['scene'], 'prompt': row['prompt'], 'filename_prefix': filename_prefix})
@@ -268,16 +277,23 @@ def run_comfyui_image_generation(project_path, config, single_image_details=None
     if not single_image_details: listener.start(); print(f"{Colors.YELLOW}Press 'X' at any time to gracefully stop.{Colors.ENDC}")
     
     interrupted = False
+    total_images = len(rows_to_process) # For progress counter
+    
     try:
-        for item in rows_to_process:
+        for i, item in enumerate(rows_to_process):
             if listener.is_interrupt_pressed(): 
                 print("\nUser interruption detected. Halting generation.")
                 interrupted = True
                 break
             output_path = os.path.join(images_folder, f"{item['filename_prefix']}.png")
+            
+            # Progress string
+            progress = f"[{i+1}/{total_images}]"
+            
             if not single_image_details and os.path.exists(output_path):
-                print(f"Skipping {os.path.basename(output_path)}, already exists."); continue
-            print(f"\nGenerating image: {os.path.basename(output_path)}")
+                print(f"{progress} Skipping {os.path.basename(output_path)}, already exists."); continue
+            
+            print(f"\n{progress} Generating image: {os.path.basename(output_path)}")
             prompt_workflow = copy.deepcopy(base_workflow)
             for node in prompt_workflow.values():
                 if node["class_type"] == "KSampler": node["inputs"]["seed"] = random.randint(0, 2**32 - 1)
@@ -373,6 +389,9 @@ def run_forge_image_generation(project_path, config, single_image_details=None):
     else:
         df = pd.read_csv(csv_path, sep='|')
         for _, row in df.iterrows():
+            if pd.isna(row['prompt']) or str(row['prompt']).strip().lower() == 'none' or not str(row['prompt']).strip():
+                print(f"{Colors.YELLOW}Skipping Chapter {row['chapter']}, Scene {row['scene']}: No valid prompt found.{Colors.ENDC}")
+                continue
             filename_base = _create_filename_base_from_prompt(row['prompt'])
             filename = f"{str(row['chapter']).zfill(2)}-{str(row['scene']).zfill(2)}_{filename_base}.png"
             rows_to_process.append({'chapter': row['chapter'], 'scene': row['scene'], 'prompt': row['prompt'], 'filename': filename})

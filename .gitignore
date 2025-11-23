@@ -88,3 +88,7 @@ Styles-SDXLBase/
 Transcripts/
 prompt_template_working - Copy.txt
 loras2.txt
+
+src/style_testerOLD.py
+current_batch.json
+style_lab_history.json

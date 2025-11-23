@@ -1,6 +1,7 @@
 # main.py
 import os
 import sys
+import json
 
 # Local imports
 from src.project_manager import (
@@ -10,12 +11,16 @@ from src.project_manager import (
     create_project_structure,
     find_importable_transcripts,
     create_project_from_transcript,
+    cleanup_global_comfyui_output, 
+    copy_project_config
 )
 from src.llm_handler import run_single_text_test_suite, run_chunking_test_suite, generate_prompts_for_project
 from src.image_generator import run_image_generation, run_upscaling_process, embed_quotes_into_images
 from src.style_tester import run_style_tester
 from src.config_manager import load_global_config
-from src.utils import Colors, open_folder_in_explorer, open_file, get_menu_choice, get_char, start_comfyui
+from src.utils import Colors, open_folder_in_explorer, open_file, get_menu_choice, get_char, start_comfyui, archive_folder
+
+BATCH_FILE = "current_batch.json"
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -176,6 +181,247 @@ def handle_chunking_test():
         print("Invalid input.")
     press_enter_to_continue()
 
+def save_batch_queue(project_paths):
+    """Saves the list of project paths to a JSON file."""
+    try:
+        with open(BATCH_FILE, 'w') as f:
+            json.dump(project_paths, f)
+    except Exception as e:
+        print(f"Error saving batch file: {e}")
+
+def load_batch_queue():
+    """Loads the list of project paths."""
+    if not os.path.exists(BATCH_FILE): return []
+    try:
+        with open(BATCH_FILE, 'r') as f:
+            return json.load(f)
+    except:
+        return []
+
+def handle_batch_processing():
+    while True:
+        clear_screen()
+        current_queue = load_batch_queue()
+        queue_status = f"{len(current_queue)} projects in queue" if current_queue else "Empty"
+        
+        print(f"{Colors.BOLD}--- Batch Processing Menu ---{Colors.ENDC}")
+        print(f"Current Batch Status: {Colors.CYAN}{queue_status}{Colors.ENDC}")
+        print("\n--- Actions ---")
+        print("[1] New Batch from Imports (Epub/Txt)")
+        print("[2] New Batch from Existing Projects")
+        
+        if current_queue:
+            print(f"[3] {Colors.GREEN}RESUME BATCH{Colors.ENDC} (Process Queue)")
+            print("[4] Apply Style to Current Batch")
+            print("[5] Embed Quotes into Images (Current Batch)") # NEW
+            print("[6] Archive Images for Current Batch (Start Over)")
+            print("[7] Clear Batch Queue")
+        
+        print("\n(B)ack")
+        
+        choice = get_menu_choice()
+        
+        if choice == '1': setup_new_batch_imports()
+        elif choice == '2': setup_new_batch_existing()
+        elif choice == '3' and current_queue: run_batch_execution_loop(current_queue)
+        elif choice == '4' and current_queue: handle_batch_style_copy(current_queue)
+        elif choice == '5' and current_queue: handle_batch_quote_embedding(current_queue) # NEW
+        elif choice == '6' and current_queue: handle_batch_archive(current_queue)
+        elif choice == '7': 
+            if os.path.exists(BATCH_FILE): os.remove(BATCH_FILE)
+        elif choice == 'b': return
+
+def handle_batch_quote_embedding(project_paths):
+    """Iterates through the batch and embeds quotes for each."""
+    clear_screen()
+    print(f"--- Batch Quote Embedding ({len(project_paths)} projects) ---")
+    
+    for i, path in enumerate(project_paths):
+        project_name = os.path.basename(path)
+        # We don't clear screen here to keep a scrolling log of progress
+        print(f"\n{Colors.BOLD}>>> Processing Project [{i+1}/{len(project_paths)}]: {project_name} <<<{Colors.ENDC}")
+        
+        # We call the existing logic
+        embed_quotes_into_images(path)
+        
+    print(f"\n{Colors.GREEN}Batch Quote Embedding Complete.{Colors.ENDC}")
+    press_enter_to_continue()
+
+def setup_new_batch_imports():
+    clear_screen()
+    print("--- New Batch: Imports ---")
+    epubs = find_importable_epubs()
+    transcripts = find_importable_transcripts()
+    
+    if not epubs and not transcripts:
+        print("No new files found."); press_enter_to_continue(); return
+
+    all_files = epubs + transcripts
+    print("\nAvailable files:")
+    for i, f in enumerate(all_files):
+        ftype = "EPUB" if i < len(epubs) else "TXT"
+        print(f"[{i+1}] {ftype}: {f}")
+        
+    selection = input("\nEnter comma-separated numbers (e.g., 1,3,4): ")
+    try:
+        indices = [int(x.strip())-1 for x in selection.split(',') if x.strip().isdigit()]
+        selected_files = [all_files[i] for i in indices if 0 <= i < len(all_files)]
+    except:
+        print("Invalid selection."); press_enter_to_continue(); return
+
+    if not selected_files: return
+
+    created_paths = []
+    print("\n--- Creating Project Structures ---")
+    for f in selected_files:
+        if f.endswith('.epub'):
+            res = create_project_structure(f)
+        else:
+            res = create_project_from_transcript(f)
+        if res: created_paths.append(res[1]) # res is (name, path), we just keep path
+
+    if created_paths:
+        save_batch_queue(created_paths)
+        print(f"\n{len(created_paths)} projects added to batch queue.")
+        
+        # Ask for style immediately
+        print("\nApply a specific style/config to these new projects?")
+        if get_menu_choice() == 'y':
+            handle_batch_style_copy(created_paths)
+            
+        run_batch_execution_loop(created_paths)
+
+def setup_new_batch_existing():
+    clear_screen()
+    print("--- New Batch: Existing Projects ---")
+    projects = find_projects() # Returns list of (name, path)
+    if not projects: print("No projects found."); press_enter_to_continue(); return
+
+    print("\nSelect projects to add to batch:")
+    for i, (name, _) in enumerate(projects):
+        print(f"[{i+1}] {name}")
+
+    selection = input("\nEnter comma-separated numbers (e.g., 1,3): ")
+    try:
+        indices = [int(x.strip())-1 for x in selection.split(',') if x.strip().isdigit()]
+        selected_projects = [projects[i][1] for i in indices if 0 <= i < len(projects)]
+    except:
+        print("Invalid selection."); press_enter_to_continue(); return
+
+    if selected_projects:
+        save_batch_queue(selected_projects)
+        print(f"\n{len(selected_projects)} projects added to batch queue.")
+        
+        print("\nApply a specific style/config to this batch?")
+        if input("(y/n): ").lower() == 'y':
+             handle_batch_style_copy(selected_projects)
+             
+        run_batch_execution_loop(selected_projects)
+
+def handle_batch_style_copy(project_paths):
+    clear_screen()
+    print("--- Apply Style to Batch ---")
+    projects = find_projects()
+    
+    if not projects:
+        print("No projects found to copy styles from.")
+        press_enter_to_continue()
+        return
+
+    print("\nSelect Source Project (Template):")
+    for i, (name, _) in enumerate(projects):
+        print(f"[{i+1}] {name}")
+    
+    try:
+        user_input = input("\nSource #: ")
+        idx = int(user_input) - 1
+        
+        # Check if selection is valid
+        if idx < 0 or idx >= len(projects):
+            print(f"{Colors.RED}Invalid selection number.{Colors.ENDC}")
+            press_enter_to_continue()
+            return
+
+        source_path = projects[idx][1]
+        source_abs = os.path.abspath(source_path)
+        
+        print(f"\nCopying style from '{projects[idx][0]}'...")
+
+        for target_path in project_paths:
+            target_abs = os.path.abspath(target_path)
+            target_name = os.path.basename(target_path)
+
+            # CRITICAL FIX: Skip if source and target are the same folder
+            if source_abs == target_abs:
+                print(f"  -> Skipping '{target_name}' (Cannot copy style to itself)")
+                continue
+
+            try:
+                copy_project_config(source_path, target_path)
+                print(f"  -> Applied to '{target_name}'")
+            except Exception as e:
+                print(f"  -> {Colors.RED}Failed on '{target_name}': {e}{Colors.ENDC}")
+
+        print(f"\n{Colors.GREEN}Batch Style Application Complete.{Colors.ENDC}")
+        press_enter_to_continue()
+
+    except ValueError:
+        print(f"{Colors.RED}Invalid input. Please enter a number.{Colors.ENDC}")
+        press_enter_to_continue()
+    except Exception as e:
+        # This catches unexpected errors and prints them so you can debug
+        print(f"\n{Colors.RED}An unexpected error occurred: {e}{Colors.ENDC}")
+        press_enter_to_continue()
+
+def handle_batch_archive(project_paths):
+    clear_screen()
+    print(f"{Colors.RED}WARNING: This will rename the 'images' folder for ALL projects in the batch.{Colors.ENDC}")
+    print("This forces the system to regenerate all images from scratch.")
+    if input("Are you sure? (type 'archive'): ") == 'archive':
+        for path in project_paths:
+            archive_folder(path, "images")
+        print("Archive complete.")
+        press_enter_to_continue()
+
+def run_batch_execution_loop(project_paths):
+    """
+    The Smart Loop:
+    Iterates through projects. 
+    1. Checks if prompts exist. If not, generates them.
+    2. Checks if images need generating. Generates missing ones.
+    3. Handles interruptions gracefully.
+    """
+    clear_screen()
+    print(f"--- Starting Batch Execution ({len(project_paths)} projects) ---")
+    print(f"{Colors.YELLOW}Press 'X' during image generation to stop the ENTIRE batch.{Colors.ENDC}\n")
+
+    for i, path in enumerate(project_paths):
+        project_name = os.path.basename(path)
+        print(f"{Colors.BOLD}>>> Processing Project [{i+1}/{len(project_paths)}]: {project_name} <<<{Colors.ENDC}")
+
+        # 1. Prompt Check
+        csv_path = os.path.join(path, f"{project_name}_prompts.csv")
+        if not os.path.exists(csv_path):
+            print(f"  -> Prompts not found. Generating...")
+            generate_prompts_for_project(path)
+        else:
+            print(f"  -> Prompts found. Skipping prompt generation.")
+
+        # 2. Image Check & Generation
+        # Ensure image folder exists
+        os.makedirs(os.path.join(path, "images"), exist_ok=True)
+        
+        print(f"  -> Starting Image Generation (Fill-in mode)...")
+        was_interrupted = run_image_generation(path)
+        
+        if was_interrupted:
+            print(f"\n{Colors.RED}Batch Execution Stopped by User.{Colors.ENDC}")
+            press_enter_to_continue()
+            return # Exit the loop and function completely
+
+    print(f"\n{Colors.GREEN}Batch Cycle Complete.{Colors.ENDC}")
+    press_enter_to_continue()
+
 def main():
     os.system("") # Enable ANSI colors on Windows
     ensure_project_folders_exist()
@@ -190,9 +436,11 @@ def main():
             print("\nNo projects found.")
         print("\n---------------------------")
         print("(I)mport New Book from 'Books' folder")
+        print("(B)atch Processing") 
         print("(S)tart ComfyUI")
         print("(L)ibrary Generator (Style Tester)")
         print("(T)esting Suites")
+        print("(C)leanup Global ComfyUI Output")
         print("(G)lobal Settings (config file)")
         print("(Q)uit")
         
@@ -206,6 +454,10 @@ def main():
             if result:
                 press_enter_to_continue()
                 handle_project_menu(*result)
+        elif choice == 'b': handle_batch_processing()
+        elif choice == 'c': 
+            cleanup_global_comfyui_output()
+            press_enter_to_continue()
         elif choice == 's':
             try:
                 global_config = load_global_config()

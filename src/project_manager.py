@@ -11,7 +11,7 @@ from pathlib import Path
 import shutil
 
 # Local imports
-from src.config_manager import get_default_project_config
+from src.config_manager import get_default_project_config, load_global_config, load_project_config 
 from src.utils import Colors
 
 # Suppress the specific FutureWarning from ebooklib
@@ -220,6 +220,68 @@ def cleanup_comfyui_output_for_project(project_path, config):
         print(f"\nSuccessfully deleted {deleted_count} files.")
     else:
         print("\nCleanup cancelled.")
+
+def cleanup_global_comfyui_output():
+    """Deletes all files in the configured ComfyUI output folder."""
+    clear_screen()
+    print(f"{Colors.RED}{Colors.BOLD}--- GLOBAL COMFYUI CLEANUP ---{Colors.ENDC}")
+    
+    try:
+        global_config = load_global_config()
+        
+        # 1. Try finding path in top-level comfyui_settings
+        comfy_path = global_config.get("comfyui_settings", {}).get("comfyui_path")
+        
+        # 2. If not found, try finding it in default_project_settings -> comfyui_settings
+        if not comfy_path:
+            comfy_path = global_config.get("default_project_settings", {}) \
+                                      .get("comfyui_settings", {}) \
+                                      .get("comfyui_path")
+
+        if not comfy_path:
+            print("ERROR: 'comfyui_path' not found in global_config.json.")
+            print("Please ensure it is set under 'comfyui_settings' or 'default_project_settings'.")
+            return
+        
+        # Check if the path is valid
+        if not os.path.isdir(comfy_path):
+            print(f"ERROR: The path '{comfy_path}' does not exist or is not a directory.")
+            return
+
+        output_dir = os.path.join(comfy_path, "output")
+        if not os.path.exists(output_dir):
+            print(f"Output directory not found at: {output_dir}"); return
+            
+        files = [f for f in os.listdir(output_dir) if os.path.isfile(os.path.join(output_dir, f))]
+        
+        if not files:
+            print(f"ComfyUI output folder is already empty.\nLocation: {output_dir}"); return
+
+        print(f"Found {len(files)} files in: {output_dir}")
+        confirm = input(f"Type 'DELETE' to permanently remove all {len(files)} files: ")
+        
+        if confirm == 'DELETE':
+            for f in files:
+                try:
+                    os.remove(os.path.join(output_dir, f))
+                except Exception as e:
+                    print(f"Failed to delete {f}: {e}")
+            print(f"{Colors.GREEN}Cleanup complete.{Colors.ENDC}")
+        else:
+            print("Operation cancelled.")
+
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+
+def copy_project_config(source_project_path, target_project_path):
+    """Copies config.json from source to target."""
+    src_cfg = os.path.join(source_project_path, "config.json")
+    tgt_cfg = os.path.join(target_project_path, "config.json")
+    if os.path.exists(src_cfg):
+        shutil.copy(src_cfg, tgt_cfg)
+        print(f"  -> Applied configuration from {os.path.basename(source_project_path)}")
+    else:
+        print(f"  -> WARNING: Source config not found at {src_cfg}")
 
 # This helper function needs to be here as well for the cleanup function to use it.
 def clear_screen():
