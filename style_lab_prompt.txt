@@ -6,8 +6,8 @@ You must define these styles by referencing specific ARTISTS, ART MOVEMENTS, or 
 Do not just say "oil painting." Say "Oil painting in the style of John Singer Sargent and Greg Rutkowski."
 
 For each style, combine:
-1. A specific medium (e.g., Watercolor, 35mm film, Charcoal, Digital Impasto).
-2. Two or three specific artist names that fit the vibe (mix classic and modern).
+1. A specific medium.
+2. One or two specific artist names that fit the vibe (mix classic and modern).
 3. Lighting and Color keywords.
 
 Return ONLY a Python-parseable list of strings. Do not describe subject matter.

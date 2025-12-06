@@ -31,3 +31,5 @@ SDXL\Splash_Art_SDXL.safetensors|mad-cbrpnksplshrt
 SDXL\zyd232_ChineseInkStyle_SDXL_v1_0.safetensors|zydink, ink sketch
 SDXL\xl_more_art-full_v1.safetensors|perfect composition
 SDXL\50sNoirMJ7SDXL.safetensors|ArsMovieStill, 50s Noir Movie Still,detective
+SDXL\LayeredPaper01_CE_XL_AIT3k.safetensors|lyrdpprCE_style
+SDXL\Terravita01_CE_SDXL.safetensors|trvtCE

@@ -222,36 +222,72 @@ def run_comfyui_image_generation(project_path, config, single_image_details=None
     overrides = comfy_settings.get("workflow_overrides", {})
     if overrides.get("enabled", False):
         print("  -> Applying ComfyUI workflow overrides from config file.")
+        
+        # 1. SMART LORA BYPASS LOGIC
+        # If config says "None", we find the LoRA node, rewire connections around it, and delete it.
         lora_name = overrides.get("lora_name", "None")
-        if not lora_name or lora_name.lower() == "none":
-            lora_node_id, source_node_id = None, None
+        if not lora_name or str(lora_name).lower() == "none":
+            lora_node_id = None
+            source_node_id = None
+            
+            # Find the LoRA node and its source (Model input)
             for node_id, node_data in base_workflow.items():
-                if node_data["class_type"] == "LoraLoader":
-                    lora_node_id = node_id; source_node_id = node_data["inputs"]["model"][0]; break
+                if node_data.get("class_type") == "LoraLoader":
+                    lora_node_id = node_id
+                    # Assuming Input 'model' connects to the previous node (CheckpointLoader)
+                    # Comfy connection format: [NodeID, SlotIndex]
+                    if "model" in node_data["inputs"]:
+                        source_node_id = node_data["inputs"]["model"][0]
+                    break
+            
+            # If found, bypass it
             if lora_node_id and source_node_id:
+                print("  -> 'lora_name' is None. Bypassing and removing LoraLoader node.")
                 for node_data in base_workflow.values():
+                    if "inputs" not in node_data: continue
                     for input_name, input_val in node_data["inputs"].items():
+                        # If a node expects input from the LoRA, point it to the LoRA's source instead
                         if isinstance(input_val, list) and input_val[0] == lora_node_id:
                             node_data["inputs"][input_name][0] = source_node_id
+                
+                # Delete the now-unused LoRA node
                 del base_workflow[lora_node_id]
-                print("  -> No LoRA specified. Bypassing LoRA node in workflow.")
 
+        # 2. STANDARD OVERRIDES
+        # We iterate again to apply settings. If the LoRA node was deleted above, it won't be found here.
         for node in base_workflow.values():
-            class_type = node["class_type"]; inputs = node["inputs"]
-            if class_type in ["CheckpointLoader", "CheckpointLoaderSimple"]: inputs["ckpt_name"] = overrides.get("ckpt_name")
+            if "class_type" not in node: continue
+            class_type = node["class_type"]
+            inputs = node.get("inputs", {})
+
+            if class_type in ["CheckpointLoader", "CheckpointLoaderSimple"]:
+                if "ckpt_name" in overrides: inputs["ckpt_name"] = overrides["ckpt_name"]
+            
             elif class_type == "LoraLoader":
-                inputs["lora_name"] = overrides.get("lora_name")
-                inputs["strength_model"] = overrides.get("lora_strength", 1.0)
-                inputs["strength_clip"] = overrides.get("lora_strength", 1.0)
+                # This part was likely missing or broken in your current file
+                if "lora_name" in overrides and overrides["lora_name"] != "None":
+                    inputs["lora_name"] = overrides["lora_name"]
+                if "lora_strength" in overrides:
+                    inputs["strength_model"] = overrides["lora_strength"]
+                    inputs["strength_clip"] = overrides["lora_strength"]
+
             elif class_type == "EmptyLatentImage":
-                inputs["width"] = overrides.get("width", 1024); inputs["height"] = overrides.get("height", 1024)
-            elif class_type == "KSampler":
-                inputs["steps"] = overrides.get("steps", 20); inputs["cfg"] = overrides.get("cfg", 7)
-                inputs["sampler_name"] = overrides.get("sampler_name", "euler"); inputs["scheduler"] = overrides.get("scheduler", "normal")
+                if "width" in overrides: inputs["width"] = overrides["width"]
+                if "height" in overrides: inputs["height"] = overrides["height"]
+                if "batch_size" in overrides: inputs["batch_size"] = overrides["batch_size"]
+
+            elif class_type in ["KSampler", "KSamplerAdvanced"]:
+                if "seed" in overrides: inputs["seed"] = overrides["seed"]
+                if "steps" in overrides: inputs["steps"] = overrides["steps"]
+                if "cfg" in overrides: inputs["cfg"] = overrides["cfg"]
+                if "sampler_name" in overrides: inputs["sampler_name"] = overrides["sampler_name"]
+                if "scheduler" in overrides: inputs["scheduler"] = overrides["scheduler"]
+                if "denoise" in overrides: inputs["denoise"] = overrides["denoise"]
     else:
         print("  -> Overrides disabled. Only replacing prompt placeholders.")
 
     rows_to_process = []
+    # ... [Row processing logic remains exactly the same] ...
     if single_image_details:
         chapter, prompt_text = single_image_details; scene_num = 1
         for f in sorted(os.listdir(images_folder)):
@@ -264,11 +300,9 @@ def run_comfyui_image_generation(project_path, config, single_image_details=None
     else:
         df = pd.read_csv(csv_path, sep='|')
         for _, row in df.iterrows():
-            # --- FIX: Skip invalid or "None" prompts ---
             if pd.isna(row['prompt']) or str(row['prompt']).strip().lower() == 'none' or str(row['prompt']).strip() == "":
                 print(f"{Colors.YELLOW}Skipping Chapter {row['chapter']}, Scene {row['scene']}: No valid prompt found.{Colors.ENDC}")
                 continue
-            
             filename_base = _create_filename_base_from_prompt(row['prompt'])
             filename_prefix = f"{str(row['chapter']).zfill(2)}-{str(row['scene']).zfill(2)}_{filename_base}"
             rows_to_process.append({'chapter': row['chapter'], 'scene': row['scene'], 'prompt': row['prompt'], 'filename_prefix': filename_prefix})
@@ -277,7 +311,7 @@ def run_comfyui_image_generation(project_path, config, single_image_details=None
     if not single_image_details: listener.start(); print(f"{Colors.YELLOW}Press 'X' at any time to gracefully stop.{Colors.ENDC}")
     
     interrupted = False
-    total_images = len(rows_to_process) # For progress counter
+    total_images = len(rows_to_process) 
     
     try:
         for i, item in enumerate(rows_to_process):
@@ -286,22 +320,46 @@ def run_comfyui_image_generation(project_path, config, single_image_details=None
                 interrupted = True
                 break
             output_path = os.path.join(images_folder, f"{item['filename_prefix']}.png")
-            
-            # Progress string
             progress = f"[{i+1}/{total_images}]"
             
             if not single_image_details and os.path.exists(output_path):
                 print(f"{progress} Skipping {os.path.basename(output_path)}, already exists."); continue
             
             print(f"\n{progress} Generating image: {os.path.basename(output_path)}")
+            
+            # --- START OF MODIFIED SECTION ---
             prompt_workflow = copy.deepcopy(base_workflow)
+            
+            # Generate a fresh 64-bit random seed for this image
+            current_seed = random.randint(1, 18446744073709551615)
+            seed_applied = False
+
             for node in prompt_workflow.values():
-                if node["class_type"] == "KSampler": node["inputs"]["seed"] = random.randint(0, 2**32 - 1)
+                # 1. SMART SEED REPLACEMENT
+                if "inputs" in node:
+                    for input_key in ["seed", "noise_seed"]:
+                        if input_key in node["inputs"]:
+                            val = node["inputs"][input_key]
+                            # Check if it's an integer and exactly 0
+                            if isinstance(val, int) and val == 0:
+                                node["inputs"][input_key] = current_seed
+                                seed_applied = True
+
+                # 2. Save Image Prefix
                 if node["class_type"] == "SaveImage":
                     node["inputs"]["filename_prefix"] = item['filename_prefix']
+                
+                # 3. Prompt Replacement
                 for key, value in node["inputs"].items():
                     if str(value) == "<prompt>": node["inputs"][key] = common.get("prompt_prefix", "") + item['prompt']
                     if str(value) == "<negprompt>": node["inputs"][key] = common.get('negative_prompt', '')
+            
+            # DEBUG LOGGING
+            #if seed_applied:
+            #    print(f"  -> Seed: {current_seed}")
+            #else:
+            #    print(f"  -> WARNING: No 'seed: 0' found in workflow. Using fixed seed from JSON.")
+
             image_data = _queue_comfy_prompt(prompt_workflow, comfy_settings.get("api_address"))
             if image_data:
                 with open(output_path, 'wb') as f: f.write(image_data)

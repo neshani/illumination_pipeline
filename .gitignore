@@ -92,3 +92,4 @@ loras2.txt
 src/style_testerOLD.py
 current_batch.json
 style_lab_history.json
+batch_prompt_override.txt

@@ -14,13 +14,14 @@ from src.project_manager import (
     cleanup_global_comfyui_output, 
     copy_project_config
 )
-from src.llm_handler import run_single_text_test_suite, run_chunking_test_suite, generate_prompts_for_project
+from src.llm_handler import run_single_text_test_suite, run_chunking_test_suite, generate_prompts_for_project, run_custom_prompt_test
 from src.image_generator import run_image_generation, run_upscaling_process, embed_quotes_into_images
 from src.style_tester import run_style_tester
 from src.config_manager import load_global_config
 from src.utils import Colors, open_folder_in_explorer, open_file, get_menu_choice, get_char, start_comfyui, archive_folder
 
 BATCH_FILE = "current_batch.json"
+BATCH_PROMPT_FILE = "batch_prompt_override.txt"
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -28,6 +29,41 @@ def clear_screen():
 def press_enter_to_continue():
     print("\nPress any key to return...")
     get_char()
+
+def parse_range_input(user_input, max_items):
+    """
+    Parses a string like '1-3, 5, 7, 9-10' into a list of 0-based indices.
+    Validates that indices are within 0 to max_items-1.
+    """
+    indices = set()
+    parts = user_input.split(',')
+    
+    for part in parts:
+        part = part.strip()
+        if not part: continue
+        
+        try:
+            if '-' in part:
+                # Handle Range (e.g., "1-5")
+                start_str, end_str = part.split('-', 1)
+                start = int(start_str.strip())
+                end = int(end_str.strip())
+                
+                # Handle if user types "5-1" instead of "1-5"
+                if start > end: start, end = end, start
+                
+                # Add range to indices (subtract 1 for 0-based index)
+                for i in range(start, end + 1):
+                    indices.add(i - 1)
+            elif part.isdigit():
+                # Handle Single Number
+                indices.add(int(part) - 1)
+        except ValueError:
+            # Ignore malformed parts (like "1-a")
+            continue
+
+    # Return sorted valid indices within bounds
+    return sorted([i for i in indices if 0 <= i < max_items])
 
 def handle_import_new_book():
     clear_screen()
@@ -204,8 +240,13 @@ def handle_batch_processing():
         current_queue = load_batch_queue()
         queue_status = f"{len(current_queue)} projects in queue" if current_queue else "Empty"
         
+        # Check for override
+        override_status = ""
+        if os.path.exists(BATCH_PROMPT_FILE):
+            override_status = f" {Colors.RED}[CUSTOM PROMPT ACTIVE]{Colors.ENDC}"
+
         print(f"{Colors.BOLD}--- Batch Processing Menu ---{Colors.ENDC}")
-        print(f"Current Batch Status: {Colors.CYAN}{queue_status}{Colors.ENDC}")
+        print(f"Current Batch Status: {Colors.CYAN}{queue_status}{Colors.ENDC}{override_status}")
         print("\n--- Actions ---")
         print("[1] New Batch from Imports (Epub/Txt)")
         print("[2] New Batch from Existing Projects")
@@ -213,9 +254,10 @@ def handle_batch_processing():
         if current_queue:
             print(f"[3] {Colors.GREEN}RESUME BATCH{Colors.ENDC} (Process Queue)")
             print("[4] Apply Style to Current Batch")
-            print("[5] Embed Quotes into Images (Current Batch)") # NEW
-            print("[6] Archive Images for Current Batch (Start Over)")
-            print("[7] Clear Batch Queue")
+            print("[5] Customize Prompt & Test (Current Batch)") # <--- NEW OPTION
+            print("[6] Embed Quotes into Images (Current Batch)")
+            print("[7] Archive Images for Current Batch (Start Over)")
+            print("[8] Clear Batch Queue")
         
         print("\n(B)ack")
         
@@ -225,11 +267,75 @@ def handle_batch_processing():
         elif choice == '2': setup_new_batch_existing()
         elif choice == '3' and current_queue: run_batch_execution_loop(current_queue)
         elif choice == '4' and current_queue: handle_batch_style_copy(current_queue)
-        elif choice == '5' and current_queue: handle_batch_quote_embedding(current_queue) # NEW
-        elif choice == '6' and current_queue: handle_batch_archive(current_queue)
-        elif choice == '7': 
+        elif choice == '5' and current_queue: handle_batch_prompt_customization(current_queue) # <--- NEW HANDLER
+        elif choice == '6' and current_queue: handle_batch_quote_embedding(current_queue)
+        elif choice == '7' and current_queue: handle_batch_archive(current_queue)
+        elif choice == '8': 
             if os.path.exists(BATCH_FILE): os.remove(BATCH_FILE)
         elif choice == 'b': return
+
+def handle_batch_prompt_customization(current_batch_queue):
+    """
+    Allows the user to edit a text file to override the prompt for the current batch.
+    """
+    if not current_batch_queue:
+        print("Batch is empty."); press_enter_to_continue(); return
+
+    while True:
+        clear_screen()
+        print("--- Customize Batch Prompt ---")
+        
+        # 1. Create file if it doesn't exist
+        if not os.path.exists(BATCH_PROMPT_FILE):
+            print("Creating override file from default template...")
+            try:
+                # Load default from config
+                global_config = load_global_config()
+                template_path = global_config.get("llm_settings", {}).get("prompt_template_file", "prompt_template.txt")
+                if os.path.exists(template_path):
+                    with open(template_path, 'r', encoding='utf-8') as f: default_content = f.read()
+                else:
+                    default_content = "Describe the scene in <text>."
+                
+                with open(BATCH_PROMPT_FILE, 'w', encoding='utf-8') as f: f.write(default_content)
+            except Exception as e:
+                print(f"Error creating file: {e}"); press_enter_to_continue(); return
+
+        # 2. Status Display
+        has_content = os.path.exists(BATCH_PROMPT_FILE)
+        print(f"Override File: {Colors.CYAN}{BATCH_PROMPT_FILE}{Colors.ENDC}")
+        if has_content:
+            print(f"Status: {Colors.GREEN}Active{Colors.ENDC}")
+        
+        print("\n[1] Open Editor (Modify Prompt)")
+        print("[2] Run Test on Random Batch Chunk")
+        print("[3] Delete Override (Revert to Default)")
+        print("(B)ack to Batch Menu")
+        
+        choice = get_menu_choice()
+        
+        if choice == '1':
+            print(f"Opening {BATCH_PROMPT_FILE}...")
+            open_file(BATCH_PROMPT_FILE)
+            input(f"\n{Colors.YELLOW}Edit the file, Save, Close, then press Enter here...{Colors.ENDC}")
+        
+        elif choice == '2':
+            try:
+                with open(BATCH_PROMPT_FILE, 'r', encoding='utf-8') as f: custom_prompt = f.read()
+                num = int(input("How many chunks to test? (1-5): "))
+                run_custom_prompt_test(current_batch_queue, custom_prompt, num)
+                press_enter_to_continue()
+            except Exception as e:
+                print(f"Error reading prompt file: {e}"); press_enter_to_continue()
+
+        elif choice == '3':
+            if os.path.exists(BATCH_PROMPT_FILE):
+                os.remove(BATCH_PROMPT_FILE)
+                print("Override deleted. Global default will be used.")
+            press_enter_to_continue()
+            
+        elif choice == 'b':
+            return
 
 def handle_batch_quote_embedding(project_paths):
     """Iterates through the batch and embeds quotes for each."""
@@ -262,61 +368,62 @@ def setup_new_batch_imports():
         ftype = "EPUB" if i < len(epubs) else "TXT"
         print(f"[{i+1}] {ftype}: {f}")
         
-    selection = input("\nEnter comma-separated numbers (e.g., 1,3,4): ")
-    try:
-        indices = [int(x.strip())-1 for x in selection.split(',') if x.strip().isdigit()]
-        selected_files = [all_files[i] for i in indices if 0 <= i < len(all_files)]
-    except:
-        print("Invalid selection."); press_enter_to_continue(); return
+    selection = input("\nEnter selection (e.g., 1-5, 8): ")
+    
+    # --- UPDATED LOGIC ---
+    indices = parse_range_input(selection, len(all_files))
+    
+    if not indices:
+        print("Invalid selection or no files selected.")
+        press_enter_to_continue()
+        return
 
-    if not selected_files: return
+    selected_files = [all_files[i] for i in indices]
+    # ---------------------
 
     created_paths = []
     print("\n--- Creating Project Structures ---")
+    
     for f in selected_files:
         if f.endswith('.epub'):
             res = create_project_structure(f)
         else:
             res = create_project_from_transcript(f)
-        if res: created_paths.append(res[1]) # res is (name, path), we just keep path
+        if res: created_paths.append(res[1])
 
     if created_paths:
         save_batch_queue(created_paths)
-        print(f"\n{len(created_paths)} projects added to batch queue.")
-        
-        # Ask for style immediately
-        print("\nApply a specific style/config to these new projects?")
-        if get_menu_choice() == 'y':
-            handle_batch_style_copy(created_paths)
-            
-        run_batch_execution_loop(created_paths)
+        print(f"\n{Colors.GREEN}Success! {len(created_paths)} projects added to the batch queue.{Colors.ENDC}")
+        print("You can now Apply Styles, Customize Prompts, or Run the batch from the menu.")
+        press_enter_to_continue()
 
 def setup_new_batch_existing():
     clear_screen()
     print("--- New Batch: Existing Projects ---")
-    projects = find_projects() # Returns list of (name, path)
+    projects = find_projects() 
     if not projects: print("No projects found."); press_enter_to_continue(); return
 
     print("\nSelect projects to add to batch:")
     for i, (name, _) in enumerate(projects):
         print(f"[{i+1}] {name}")
 
-    selection = input("\nEnter comma-separated numbers (e.g., 1,3): ")
-    try:
-        indices = [int(x.strip())-1 for x in selection.split(',') if x.strip().isdigit()]
-        selected_projects = [projects[i][1] for i in indices if 0 <= i < len(projects)]
-    except:
-        print("Invalid selection."); press_enter_to_continue(); return
+    selection = input("\nEnter selection (e.g., 1-3, 5): ")
+    
+    # --- UPDATED LOGIC ---
+    indices = parse_range_input(selection, len(projects))
+    
+    if not indices:
+        print("Invalid selection.")
+        press_enter_to_continue()
+        return
+
+    selected_projects = [projects[i][1] for i in indices]
+    # ---------------------
 
     if selected_projects:
         save_batch_queue(selected_projects)
-        print(f"\n{len(selected_projects)} projects added to batch queue.")
-        
-        print("\nApply a specific style/config to this batch?")
-        if input("(y/n): ").lower() == 'y':
-             handle_batch_style_copy(selected_projects)
-             
-        run_batch_execution_loop(selected_projects)
+        print(f"\n{Colors.GREEN}{len(selected_projects)} projects added to batch queue.{Colors.ENDC}")
+        press_enter_to_continue()
 
 def handle_batch_style_copy(project_paths):
     clear_screen()
@@ -384,40 +491,50 @@ def handle_batch_archive(project_paths):
         press_enter_to_continue()
 
 def run_batch_execution_loop(project_paths):
-    """
-    The Smart Loop:
-    Iterates through projects. 
-    1. Checks if prompts exist. If not, generates them.
-    2. Checks if images need generating. Generates missing ones.
-    3. Handles interruptions gracefully.
-    """
     clear_screen()
     print(f"--- Starting Batch Execution ({len(project_paths)} projects) ---")
+    
+    # Check for override file
+    batch_prompt_override = None
+    if os.path.exists(BATCH_PROMPT_FILE):
+        try:
+            with open(BATCH_PROMPT_FILE, 'r', encoding='utf-8') as f:
+                batch_prompt_override = f.read()
+            print(f"{Colors.MAGENTA}NOTICE: Using Custom Prompt Override from {BATCH_PROMPT_FILE}{Colors.ENDC}")
+        except Exception as e:
+            print(f"{Colors.RED}Error reading prompt override: {e}. Using default.{Colors.ENDC}")
+
     print(f"{Colors.YELLOW}Press 'X' during image generation to stop the ENTIRE batch.{Colors.ENDC}\n")
 
     for i, path in enumerate(project_paths):
         project_name = os.path.basename(path)
         print(f"{Colors.BOLD}>>> Processing Project [{i+1}/{len(project_paths)}]: {project_name} <<<{Colors.ENDC}")
 
-        # 1. Prompt Check
+        # 1. Smart Prompt Check
         csv_path = os.path.join(path, f"{project_name}_prompts.csv")
-        if not os.path.exists(csv_path):
-            print(f"  -> Prompts not found. Generating...")
-            generate_prompts_for_project(path)
-        else:
-            print(f"  -> Prompts found. Skipping prompt generation.")
-
-        # 2. Image Check & Generation
-        # Ensure image folder exists
-        os.makedirs(os.path.join(path, "images"), exist_ok=True)
+        prompts_exist = os.path.exists(csv_path)
         
-        print(f"  -> Starting Image Generation (Fill-in mode)...")
+        if not prompts_exist:
+            print(f"  -> Prompts missing. {Colors.CYAN}Generating now...{Colors.ENDC}")
+            generate_prompts_for_project(path, prompt_override=batch_prompt_override)
+            # Re-check if generation was successful
+            if not os.path.exists(csv_path):
+                print(f"  -> {Colors.RED}Prompt generation failed or was empty. Skipping image generation.{Colors.ENDC}")
+                continue
+        else:
+            print(f"  -> Prompts found. {Colors.GREEN}Ready for images.{Colors.ENDC}")
+
+        # 2. Image Generation
+        # Only runs if prompts exist (old or newly generated)
+        os.makedirs(os.path.join(path, "images"), exist_ok=True)
+        print(f"  -> Starting Image Generation...")
+        
         was_interrupted = run_image_generation(path)
         
         if was_interrupted:
             print(f"\n{Colors.RED}Batch Execution Stopped by User.{Colors.ENDC}")
             press_enter_to_continue()
-            return # Exit the loop and function completely
+            return
 
     print(f"\n{Colors.GREEN}Batch Cycle Complete.{Colors.ENDC}")
     press_enter_to_continue()
