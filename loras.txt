@@ -33,3 +33,12 @@ SDXL\xl_more_art-full_v1.safetensors|perfect composition
 SDXL\50sNoirMJ7SDXL.safetensors|ArsMovieStill, 50s Noir Movie Still,detective
 SDXL\LayeredPaper01_CE_XL_AIT3k.safetensors|lyrdpprCE_style
 SDXL\Terravita01_CE_SDXL.safetensors|trvtCE
+ZIT\ck-NeurocoreShadowCircuit-ZIT_000003000.safetensors|.
+ZIT\DarkAtmospheric01_CE_ZIMG_AIT4k.safetensors|.
+ZIT\Geometric01_CE_ZIMGT_AIT5k.safetensors|.
+ZIT\PencilDrawEn01_CE_ZIMGT_AIT3k.safetensors|.
+ZIT\Raw Color ZIT.safetensors|.
+ZIT\RetroPop01a_CE_ZIMGT_AIT5k.safetensors|.
+ZIT\Vaporwave Anime 80s.safetensors|.
+ZIT\HyperDetailedColoredPencilZ_000003000.safetensors|ArsMJStyle, Colored pencil hyperdetailed realism
+ZIT\Steve_McDonald_Zit_E10.safetensors|BSMD2 art style

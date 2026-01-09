@@ -331,7 +331,7 @@ def run_comfyui_image_generation(project_path, config, single_image_details=None
             prompt_workflow = copy.deepcopy(base_workflow)
             
             # Generate a fresh 64-bit random seed for this image
-            current_seed = random.randint(1, 18446744073709551615)
+            current_seed = random.randint(1, 4294967294)
             seed_applied = False
 
             for node in prompt_workflow.values():

@@ -9,6 +9,8 @@ from ebooklib import epub
 from bs4 import BeautifulSoup
 from pathlib import Path
 import shutil
+import re
+import pandas as pd
 
 # Local imports
 from src.config_manager import get_default_project_config, load_global_config, load_project_config 
@@ -220,6 +222,141 @@ def cleanup_comfyui_output_for_project(project_path, config):
         print(f"\nSuccessfully deleted {deleted_count} files.")
     else:
         print("\nCleanup cancelled.")
+
+def integrate_refusals(project_path, silent_mode=False):
+    """
+    Parses refusals.log and attempts to merge valid PROMPT/QUOTE pairs 
+    back into the project's main CSV file.
+    
+    Args:
+        project_path: Path to the project folder.
+        silent_mode: If True, suppresses UI prompts/clears and auto-archives if successful.
+                     Returns the number of recovered entries.
+    """
+    if not silent_mode:
+        clear_screen()
+        print("--- Refusal Recovery Tool ---")
+    
+    project_name = os.path.basename(project_path)
+    refusal_log_path = os.path.join(project_path, "refusals.log")
+    csv_path = os.path.join(project_path, f"{project_name}_prompts.csv")
+
+    if not os.path.exists(refusal_log_path):
+        if not silent_mode:
+            print(f"{Colors.YELLOW}No refusals.log found.{Colors.ENDC}")
+        return 0
+
+    if not silent_mode:
+        print(f"Reading {refusal_log_path}...")
+        
+    with open(refusal_log_path, 'r', encoding='utf-8') as f:
+        log_content = f.read()
+
+    # Split by the dashed lines
+    raw_blocks = re.split(r'-{10,}', log_content)
+    
+    recovered_entries = []
+
+    for block in raw_blocks:
+        if not block.strip(): continue
+
+        # 1. Check for Header
+        header_match = re.search(r"Chapter\s+(\d+),\s+Scene\s+(\d+):", block, re.IGNORECASE)
+        
+        if header_match:
+            chapter_num = int(header_match.group(1))
+            scene_num = int(header_match.group(2))
+            
+            # 2. Parse Body
+            body = block[header_match.end():].strip()
+            
+            parsed_prompt = ""
+            parsed_quote = ""
+
+            for line in body.splitlines():
+                line = line.strip()
+                if line.startswith("PROMPT:"):
+                    parsed_prompt = line[len("PROMPT:"):].strip()
+                elif line.startswith("QUOTE:"):
+                    parsed_quote = line[len("QUOTE:"):].strip()
+            
+            # 3. STRICT CHECK: We ONLY accept if we found a "PROMPT:" tag.
+            # This filters out the "I refuse to generate..." blocks which lack that tag.
+            if parsed_prompt:
+                recovered_entries.append({
+                    'chapter': chapter_num,
+                    'scene': scene_num,
+                    'prompt': parsed_prompt,
+                    'quote': parsed_quote or " "
+                })
+
+    if not recovered_entries:
+        if not silent_mode:
+            print(f"{Colors.RED}No valid 'PROMPT:' entries found in log.{Colors.ENDC}")
+        return 0
+
+    if not silent_mode:
+        print(f"Found {len(recovered_entries)} potential recoveries.")
+
+    # Load Existing CSV
+    current_data = []
+    if os.path.exists(csv_path):
+        try:
+            df = pd.read_csv(csv_path, sep='|')
+            df.columns = df.columns.str.lower().str.strip()
+            current_data = df.to_dict('records')
+        except Exception:
+            pass
+
+    # Merge (Avoid Duplicates)
+    existing_keys = set((int(row['chapter']), int(row['scene'])) for row in current_data)
+    
+    added_count = 0
+    for entry in recovered_entries:
+        key = (entry['chapter'], entry['scene'])
+        if key not in existing_keys:
+            current_data.append(entry)
+            existing_keys.add(key)
+            added_count += 1
+
+    if added_count == 0:
+        if not silent_mode:
+            print(f"{Colors.YELLOW}All entries already exist in CSV.{Colors.ENDC}")
+        return 0
+
+    # Save and Sort
+    new_df = pd.DataFrame(current_data)
+    if 'prompt' in new_df.columns and 'quote' in new_df.columns:
+        new_df = new_df[['chapter', 'scene', 'prompt', 'quote']]
+    new_df = new_df.sort_values(by=['chapter', 'scene'])
+    
+    # Backup
+    if os.path.exists(csv_path) and not silent_mode:
+        import shutil
+        shutil.copy(csv_path, csv_path + ".bak")
+
+    new_df.to_csv(csv_path, sep='|', index=False)
+    
+    if not silent_mode:
+        print(f"{Colors.GREEN}Successfully merged {added_count} entries.{Colors.ENDC}")
+
+    # Auto-archive in silent mode, or Ask in interactive mode
+    should_archive = False
+    if silent_mode:
+        should_archive = True
+    else:
+        print("\nArchive refusals.log? (y/n)")
+        if input("> ").lower().strip() == 'y':
+            should_archive = True
+
+    if should_archive:
+        try:
+            os.rename(refusal_log_path, refusal_log_path + ".processed")
+            if not silent_mode: print("Log archived.")
+        except OSError:
+            pass
+
+    return added_count
 
 def cleanup_global_comfyui_output():
     """Deletes all files in the configured ComfyUI output folder."""

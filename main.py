@@ -11,6 +11,7 @@ from src.project_manager import (
     create_project_structure,
     find_importable_transcripts,
     create_project_from_transcript,
+    integrate_refusals,
     cleanup_global_comfyui_output, 
     copy_project_config
 )
@@ -143,7 +144,8 @@ def handle_project_menu(project_name, project_path):
         is_comfy_project = config.get("common_settings", {}).get("image_generator_type") == "comfyui"
 
         prompts_exist = os.path.exists(os.path.join(project_path, f"{project_name}_prompts.csv"))
-        
+        refusals_exist = os.path.exists(os.path.join(project_path, "refusals.log"))
+
         if not prompts_exist:
             print("Status: Ready for Prompt Generation.")
             print("\n[1] Generate prompts from book text")
@@ -164,6 +166,8 @@ def handle_project_menu(project_name, project_path):
             print("(O)pen Project Folder")
             if is_comfy_project:
                 print(f"(C)lean up ComfyUI Output Folder")
+            if refusals_exist:
+                print(f"(M)erge Refusals into CSV ({Colors.YELLOW}Log Found{Colors.ENDC})")
             print("(R)e-run prompt generation (deletes existing prompts)")
             print("(B)ack to Main Menu")
             print("\nSelect an option: ", end="", flush=True)
@@ -179,6 +183,9 @@ def handle_project_menu(project_name, project_path):
             elif choice == 'c' and is_comfy_project:
                 from src.project_manager import cleanup_comfyui_output_for_project
                 cleanup_comfyui_output_for_project(project_path, config)
+                press_enter_to_continue()
+            elif choice == 'm':
+                integrate_refusals(project_path)
                 press_enter_to_continue()
             elif choice == 'r':
                 print("\nAre you sure? (y/n): ", end="", flush=True)
@@ -254,10 +261,11 @@ def handle_batch_processing():
         if current_queue:
             print(f"[3] {Colors.GREEN}RESUME BATCH{Colors.ENDC} (Process Queue)")
             print("[4] Apply Style to Current Batch")
-            print("[5] Customize Prompt & Test (Current Batch)") # <--- NEW OPTION
+            print("[5] Customize Prompt & Test (Current Batch)")
             print("[6] Embed Quotes into Images (Current Batch)")
-            print("[7] Archive Images for Current Batch (Start Over)")
-            print("[8] Clear Batch Queue")
+            print("[7] Recover Refusals (Batch)") 
+            print("[8] Archive Images for Current Batch (Start Over)")
+            print("[9] Clear Batch Queue") 
         
         print("\n(B)ack")
         
@@ -267,10 +275,11 @@ def handle_batch_processing():
         elif choice == '2': setup_new_batch_existing()
         elif choice == '3' and current_queue: run_batch_execution_loop(current_queue)
         elif choice == '4' and current_queue: handle_batch_style_copy(current_queue)
-        elif choice == '5' and current_queue: handle_batch_prompt_customization(current_queue) # <--- NEW HANDLER
+        elif choice == '5' and current_queue: handle_batch_prompt_customization(current_queue)
         elif choice == '6' and current_queue: handle_batch_quote_embedding(current_queue)
-        elif choice == '7' and current_queue: handle_batch_archive(current_queue)
-        elif choice == '8': 
+        elif choice == '7' and current_queue: handle_batch_recovery(current_queue)
+        elif choice == '8' and current_queue: handle_batch_archive(current_queue)
+        elif choice == '9': 
             if os.path.exists(BATCH_FILE): os.remove(BATCH_FILE)
         elif choice == 'b': return
 
@@ -351,6 +360,43 @@ def handle_batch_quote_embedding(project_paths):
         embed_quotes_into_images(path)
         
     print(f"\n{Colors.GREEN}Batch Quote Embedding Complete.{Colors.ENDC}")
+    press_enter_to_continue()
+
+def handle_batch_recovery(project_paths):
+    """
+    Iterates through the batch and attempts to merge refusals automatically.
+    """
+    clear_screen()
+    print(f"--- Batch Refusal Recovery ({len(project_paths)} projects) ---")
+    print("Scanning for refusals.log files containing valid 'PROMPT:' tags...\n")
+    
+    total_recovered = 0
+    projects_affected = 0
+    
+    for i, path in enumerate(project_paths):
+        project_name = os.path.basename(path)
+        print(f"[{i+1}/{len(project_paths)}] {project_name}...", end=" ", flush=True)
+        
+        # Check if log exists before calling to keep output clean
+        log_path = os.path.join(path, "refusals.log")
+        if not os.path.exists(log_path):
+            print(f"{Colors.CYAN}No log.{Colors.ENDC}")
+            continue
+            
+        # Run in silent mode
+        count = integrate_refusals(path, silent_mode=True)
+        
+        if count > 0:
+            print(f"{Colors.GREEN}Recovered {count} items.{Colors.ENDC}")
+            total_recovered += count
+            projects_affected += 1
+        else:
+            print(f"{Colors.YELLOW}No valid data found.{Colors.ENDC}")
+
+    print("\n" + "="*40)
+    print(f"Total Recovered: {Colors.GREEN}{total_recovered} prompts{Colors.ENDC}")
+    print(f"Projects Updated: {projects_affected}")
+    print(f"Processed logs have been renamed to .processed")
     press_enter_to_continue()
 
 def setup_new_batch_imports():
